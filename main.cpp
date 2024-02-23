@@ -48,12 +48,11 @@ JSValue evalScript(JSContext* ctx, const char* script)  {
 }
 
 // To see:
-// JS_NewCFunction
 // ctx.JS_GetException
 // JS_EXCEPTION
 // JS_IsException
 // https://blogs.igalia.com/compilers/2023/06/12/quickjs-an-overview-and-guide-to-adding-a-new-feature/
-
+// Async: https://www.freelists.org/post/quickjs-devel/Unable-to-await-promise,1
 
 static JSValue js_print(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv)
 {
