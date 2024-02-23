@@ -1,54 +1,137 @@
 /* File generated automatically by the QuickJS compiler. */
 
+#include <cstring>
+#include <cstdio>
+
 #include "quickjs-libc.h"
 
-const uint32_t qjsc_hello_size = 72;
+#define PROGP_PRINT(m) printf("%s\n", m)
+#define PROGP_DEBUG(m) std::cout << "[C-PROGP_DEBUG] - " << m << std::endl
+#define PROGP_LOG_ERROR(FROM, WHAT) std::cout << "ERROR - " << FROM << " - " << WHAT << std::endl
 
-const uint8_t qjsc_hello[72] = {
-        0x02, 0x04, 0x0e, 0x63, 0x6f, 0x6e, 0x73, 0x6f,
-        0x6c, 0x65, 0x06, 0x6c, 0x6f, 0x67, 0x0a, 0x68,
-        0x65, 0x6c, 0x6c, 0x6f, 0x10, 0x68, 0x65, 0x6c,
-        0x6c, 0x6f, 0x2e, 0x6a, 0x73, 0x0e, 0x00, 0x06,
-        0x00, 0xa2, 0x01, 0x00, 0x01, 0x00, 0x03, 0x00,
-        0x00, 0x14, 0x01, 0xa4, 0x01, 0x00, 0x00, 0x00,
-        0x38, 0xe3, 0x00, 0x00, 0x00, 0x42, 0xe4, 0x00,
-        0x00, 0x00, 0x04, 0xe5, 0x00, 0x00, 0x00, 0x24,
-        0x01, 0x00, 0xcf, 0x28, 0xcc, 0x03, 0x01, 0x00,
-};
+// https://bellard.org/quickjs/quickjs.html
 
 static JSContext *JS_NewCustomContext(JSRuntime *rt)
 {
-    JSContext *ctx = JS_NewContextRaw(rt);
-    if (!ctx)
-        return NULL;
-    JS_AddIntrinsicBaseObjects(ctx);
-    JS_AddIntrinsicDate(ctx);
+    JSContext *ctx;
+    ctx = JS_NewContext(rt);
+    if (!ctx) return nullptr;
+
+    JS_AddIntrinsicBigFloat(ctx);
+    JS_AddIntrinsicBigDecimal(ctx);
+    JS_AddIntrinsicOperators(ctx);
+
+    JS_EnableBignumExt(ctx, 1);
     JS_AddIntrinsicEval(ctx);
-    JS_AddIntrinsicStringNormalize(ctx);
-    JS_AddIntrinsicRegExp(ctx);
-    JS_AddIntrinsicJSON(ctx);
     JS_AddIntrinsicProxy(ctx);
-    JS_AddIntrinsicMapSet(ctx);
-    JS_AddIntrinsicTypedArrays(ctx);
-    JS_AddIntrinsicPromise(ctx);
-    JS_AddIntrinsicBigInt(ctx);
+
+    // JS_AddIntrinsicDate(ctx);
+    // JS_AddIntrinsicMapSet(ctx);
+    // JS_AddIntrinsicPromise(ctx);
+    // JS_AddIntrinsicBigInt(ctx);
+    // JS_AddIntrinsicStringNormalize(ctx);
+    // JS_AddIntrinsicRegExp(ctx);
+    // JS_AddIntrinsicJSON(ctx);
+    // JS_AddIntrinsicBaseObjects(ctx);
+    // JS_AddIntrinsicTypedArrays(ctx);
+
+    //TODO: comment
+    js_init_module_std(ctx, "std");
+    js_init_module_os(ctx, "os");
+
     return ctx;
+}
+
+JSValue evalScript(JSContext* ctx, const char* script)  {
+    const char* filePath = "<evalScript>";
+    return JS_Eval(ctx, script, strlen(script), filePath, JS_EVAL_TYPE_GLOBAL);
+}
+
+// To see:
+// JS_NewCFunction
+// ctx.JS_GetException
+// JS_EXCEPTION
+// JS_IsException
+// https://blogs.igalia.com/compilers/2023/06/12/quickjs-an-overview-and-guide-to-adding-a-new-feature/
+
+
+static JSValue js_print(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv)
+{
+    int i;
+    const char *str;
+
+    for (i = 0; i < argc; i++) {
+        str = JS_ToCString(ctx, argv[i]);
+        if (!str) return JS_EXCEPTION;
+        PROGP_PRINT(str);
+        JS_FreeCString(ctx, str);
+    }
+
+    return JS_UNDEFINED;
 }
 
 int main(int argc, char **argv)
 {
-    JSRuntime *rt;
-    JSContext *ctx;
-    rt = JS_NewRuntime();
-    js_std_set_worker_new_context_func(JS_NewCustomContext);
+    //region Create and init the the runtime.
+
+    auto rt = JS_NewRuntime();
     js_std_init_handlers(rt);
-    JS_SetModuleLoaderFunc(rt, NULL, js_module_loader, NULL);
-    ctx = JS_NewCustomContext(rt);
-    js_std_add_helpers(ctx, argc, argv);
-    js_std_eval_binary(ctx, qjsc_hello, qjsc_hello_size, 0);
+
+    // Allows using Atomics.wait()
+    JS_SetCanBlock(rt, 1);
+
+    // For javascript ES6 module loading capacities.
+    // Will not be used here since we build all in ore files.
+    //
+    // JS_SetModuleLoaderFunc(rt, nullptr, js_module_loader, nullptr);
+
+    js_std_set_worker_new_context_func(JS_NewCustomContext);
+
+    //endregion
+
+    //region Create a context
+
+    JSContext* ctx = JS_NewCustomContext(rt);
+
+    // No use of the command line here.
+    js_std_add_helpers(ctx, -1, nullptr);
+
+    // Task loop, processing the asynchrones things.
     js_std_loop(ctx);
-    js_std_free_handlers(rt);
+
+    //endregion
+
+    //region Declare functions
+
+    auto ctxGlobal = JS_GetGlobalObject(ctx);
+
+    // Indiquer le nombre d'args permet d'optimiser.
+    auto minArgCount = 1;
+    JS_SetPropertyStr(ctx, ctxGlobal, "js_print", JS_NewCFunction(ctx, js_print, "js_print", minArgCount));
+
+    //endregion
+
+    // ............
+    auto res = evalScript(ctx, "console.log(123); js_print(11, 22);'ok'");
+
+    if (JS_IsException(res)) {
+        PROGP_PRINT("exception found");
+    }
+    else if (JS_IsString(res)) {
+        auto cString = JS_ToCString(ctx, res);
+        PROGP_PRINT(cString);
+        JS_FreeCString(ctx, cString);
+    }
+
+    JS_FreeValue(ctx, res);
+
+    // ............
+
+    JS_FreeValue(ctx, ctxGlobal);
     JS_FreeContext(ctx);
+
+    // Free the engine.
+    js_std_free_handlers(rt);
     JS_FreeRuntime(rt);
     return 0;
 }
