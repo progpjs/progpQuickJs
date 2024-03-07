@@ -1,45 +1,40 @@
 cmake_minimum_required(VERSION 3.25)
-project(progQuickJS)
+project(quickJsEngine)
 
-macro(progp_set_vars)
-    set(CMAKE_CXX_STANDARD 17)
+macro(project_set_vars)
+    FILE(GLOB PROJECT_SOURCES_H                 "${CMAKE_SOURCE_DIR}/*.h")
+    FILE(GLOB PROJECT_SOURCES_CPP               "${CMAKE_SOURCE_DIR}/*.c")
 
-    FILE(GLOB PROGP_SOURCES_H               "${CMAKE_SOURCE_DIR}/*.h")
-    FILE(GLOB PROGP_SOURCES_CPP             "${CMAKE_SOURCE_DIR}/*.cpp")
+    set(PROJECT_LIB_DIR                         "${CMAKE_SOURCE_DIR}/libQuickJS/${CMAKE_SYSTEM_NAME}")
+    set(PROJECT_INCLUDE_DIR                     "${CMAKE_SOURCE_DIR}/libQuickJS/src")
+    set(RPOJECT_BIN_DIR                         "${CMAKE_SOURCE_DIR}/bin/${CMAKE_SYSTEM_NAME}")
 
-    set(PROGP_LIB_DIR                       "${CMAKE_SOURCE_DIR}/libQuickJS/${CMAKE_SYSTEM_NAME}")
-    set(PROGP_INCLUDE_DIR                   "${CMAKE_SOURCE_DIR}/libQuickJS/src")
-    set(PROGP_BIN_DIR                       "${CMAKE_SOURCE_DIR}/bin/${CMAKE_SYSTEM_NAME}")
-
-    set(PROGP_COMPILE_OPTIONS               -Wall -fno-rtti -fPIC -std=c++17)
-    set(PROGP_INCLUDE_SEARCH                ${PROGP_INCLUDE_DIR})
+    set(PROGP_COMPILE_OPTIONS                   -Wall -fno-rtti -fPIC)
+    set(PROJECT_INCLUDE_SEARCH                   ${PROJECT_INCLUDE_DIR})
 endmacro()
 
-macro(progp_init)
-    progp_set_vars()
-endmacro()
 
-macro(progp_printInfos)
+macro(project_printInfos)
     message("SYSTEM_ARCH: ${CMAKE_SYSTEM_NAME}")
-    message("PROGP_SOURCES_H: ${PROGP_SOURCES_H}")
-    message("PROGP_SOURCES_CPP: ${PROGP_SOURCES_CPP}")
-    message("PROGP_LIB_DIR: ${PROGP_LIB_DIR}")
-    message("PROGP_INCLUDE_SEARCH: ${PROGP_INCLUDE_SEARCH}")
+    message("PROJECT_SOURCES_H: ${PROJECT_SOURCES_H}")
+    message("PROJECT_SOURCES_CPP: ${PROJECT_SOURCES_CPP}")
+    message("PROJECT_LIB_DIR: ${PROJECT_LIB_DIR}")
+    message("PROJECT_INCLUDE_SEARCH: ${PROJECT_INCLUDE_SEARCH}")
 endmacro()
 
-macro(progp_buildAsExecutable)
-    add_executable(progpQuickJs)
+macro(project_buildAsExecutable)
+    add_executable(quickJsEngine)
     #
-    target_sources(progpQuickJs PRIVATE ${PROGP_SOURCES_CPP})
-    target_link_libraries(progpQuickJs PUBLIC pthread -lquickjs -L${PROGP_LIB_DIR})
-    target_compile_options(progpQuickJs PUBLIC ${PROGP_COMPILE_OPTIONS} -DPROGP_STANDALONE)
-    target_include_directories(progpQuickJs PRIVATE ${PROGP_INCLUDE_SEARCH})
+    target_sources(quickJsEngine PRIVATE ${PROJECT_SOURCES_CPP})
+    target_link_libraries(quickJsEngine PUBLIC pthread -lquickjs -L${PROJECT_LIB_DIR})
+    target_compile_options(quickJsEngine PUBLIC ${PROGP_COMPILE_OPTIONS} -DPROGP_STANDALONE)
+    target_include_directories(quickJsEngine PRIVATE ${PROJECT_INCLUDE_SEARCH})
 
 endmacro()
 
-progp_init()
-progp_printInfos()
-progp_buildAsExecutable()
+project_set_vars()
+project_printInfos()
+project_buildAsExecutable()
 
 
 

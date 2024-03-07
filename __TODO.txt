@@ -1,0 +1,23 @@
+[x] Base
+[x] Bug quand active le JSON
+[x] Retrouver les info sur une exception
+
+[x] Context: englober dans une structure où je compte les références.
+
+[x] Context: mémoriser une ref à la globale dans l'objet.
+    Va permettre d'optimiser la déclaration des fonctions.
+
+[ ] Voir ctx.user_opaque --> Y stocker mon pCtx
+    afin de pouvoir le retrouver.
+
+[ ] ArrayBuffer
+        JS_NewArrayBuffer
+        array = JS_NewArrayBufferCopy(ctx, buf, len);           --> Tout simplement
+        Voir exemple dans : js_bjson_write
+
+/////////////////
+
+JSModuleDef *JS_NewCModule(JSContext *ctx, const char *name_str,
+                           JSModuleInitFunc *func);
+
+https://fuchsia.googlesource.com/third_party/quickjs/+/refs/heads/main/basic_test.cc
