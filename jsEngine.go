@@ -55,7 +55,7 @@ func (m *Context) KeepAlive() {
 	runtime.SetFinalizer(m, (*Context).Dispose)
 }
 
-func (m *Context) ExecuteScript(ctx *C.s_quick_ctx, script string, scriptOrigin string) *jsCommon.JsErrorMessage {
+func (m *Context) ExecuteScript(script string, scriptOrigin string) *jsCommon.JsErrorMessage {
 	cScript := C.CString(script)
 	defer func() { C.free(unsafe.Pointer(cScript)) }()
 
