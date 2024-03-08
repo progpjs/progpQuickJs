@@ -1,6 +1,9 @@
-let res = js_receiveFunction(() => {
-    console.log("Dans ma fonction")
-    return "ok 1234"
-})
+function test(title, v) {
+    console.log(title, "- Send:", v, "- Received:", js_decodeParams(v));
+}
 
-console.log("res:", res)
+test("string", "my string");
+test("int", 123);
+test("float", 1.23);
+test("bool(true)", true);
+test("bool(false)", false);

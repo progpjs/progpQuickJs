@@ -2,7 +2,6 @@ package jsQuickJs
 
 import "C"
 import (
-	"reflect"
 	"runtime"
 	"strconv"
 	"strings"
@@ -17,7 +16,6 @@ import (
 //
 // #include <stdlib.h> // For C.free
 // #include "quickJsEngine.h"
-// #include "cgoBinding.h"
 // #include "dynamic.h"
 //
 import "C"
@@ -25,24 +23,24 @@ import "C"
 var cUInt8True = C.uint8_t(1)
 var gScriptOrigin = C.CString("<scriptOrigin>")
 
-func InitializeEngine() {
-	C.quickjs_initialize()
-	C.cgoInitialize()
-	C.cgo_registerDynamicFunctions()
-}
-
 var gNextFunctionId = 0
 var gFunctionTable = make([]jsFunction, 500)
 var gCFunctionTable = make([]*C.JSCFunction, 500)
 
 type jsFunction struct {
 	name       *C.char
-	goFunction func()
+	goFunction func(value []AnyValue)
+
 	paramCount C.int
 	cFunction  *C.JSCFunction
 }
 
-func RegisterFunction(jsName string, toCall func()) {
+func InitializeEngine() {
+	C.quickjs_initialize()
+	C.quickjs_registerDynamicFunctions()
+}
+
+func RegisterFunction(jsName string, toCall func(value []AnyValue)) {
 	id := gNextFunctionId
 	gNextFunctionId++
 
@@ -140,45 +138,24 @@ func (m *Context) createErrorMessage(scriptPath string, title string, body strin
 
 type AnyValueType int
 
-const (
-	AnyValueTypeUndefined AnyValueType = iota
-	AnyValueTypeNull
-	AnyValueTypeInvalid
-	AnyValueTypeNumber
-	AnyValueTypeString
-	AnyValueTypeBoolean
-	AnyValueTypeBuffer
-	AnyValueTypeFunction
-	AnyValueTypeJson
-)
+var cAnyValueTypeUndefined = C.int(0)
+var cAnyValueTypeNull = C.int(1)
+var cAnyValueTypeInvalid = C.int(2)
+var cAnyValueTypeNumber = C.int(3)
+var cAnyValueTypeString = C.int(4)
+var cAnyValueTypeBoolean = C.int(5)
+var cAnyValueTypeBuffer = C.int(6)
+var cAnyValueTypeFunction = C.int(7)
+var cAnyValueTypeJson = C.int(8)
+var cAnyValueTypeInt32 = C.int(9)
+
+type AnyValue struct {
+	Type  C.int
+	Value any
+}
 
 const cInt0 = C.int(0)
 const cInt1 = C.int(1)
-
-//region AnyValue from reflect.Value
-
-func AnyValueFromReflectValueString(resV reflect.Value, anyValue *C.s_progp_anyValue) {
-	anyValue.valueType = C.int(AnyValueTypeString)
-	anyValue.voidPtr = unsafe.Pointer(C.CString(resV.String()))
-	anyValue.mustFree = cInt1
-}
-
-func AnyValueFromReflectValueBool(resV reflect.Value, anyValue *C.s_progp_anyValue) {
-	anyValue.valueType = C.int(AnyValueTypeBoolean)
-
-	if resV.Bool() == true {
-		anyValue.size = cInt1
-	} else {
-		anyValue.size = cInt0
-	}
-}
-
-func AnyValueFromReflectValueFloat64(resV reflect.Value, anyValue *C.s_progp_anyValue) {
-	anyValue.valueType = C.int(AnyValueTypeNumber)
-	anyValue.number = C.double(resV.Float())
-}
-
-//endregion
 
 func createErrorAnyValue(error string) C.s_progp_anyValue {
 	var ev C.s_progp_anyValue
@@ -190,15 +167,34 @@ func createErrorAnyValue(error string) C.s_progp_anyValue {
 
 //region Call from C++
 
-//export registerDynamicFunction
-func registerDynamicFunction(id C.int, fctRef *C.JSCFunction) {
+//export cgoRegisterDynamicFunction
+func cgoRegisterDynamicFunction(id C.int, fctRef *C.JSCFunction) {
 	gCFunctionTable[int(id)] = fctRef
 }
 
-//export goCallDynamic
-func goCallDynamic(id C.int, ctx *C.JSContext, argc C.int, argv *C.JSValueConst) C.JSValue {
+//export cgoCallDynamicFunction
+func cgoCallDynamicFunction(id C.int, pCtx *C.s_quick_ctx, argc C.int) C.JSValue {
+	inputAnyValues := pCtx.inputAnyValues
+	count := int(argc)
+
+	// Size of struct: C.sizeof_s_progp_anyValue
+
+	cAnyValue := inputAnyValues
+	var allAnyValues []AnyValue
+
+	for i := 0; i < count; i++ {
+		cValueType := cAnyValue.valueType
+
+		if cValueType == cAnyValueTypeInt32 {
+			v := AnyValue{Type: cValueType, Value: int(cAnyValue.size)}
+			allAnyValues = append(allAnyValues, v)
+		}
+
+		cAnyValue = (*C.s_progp_anyValue)(unsafe.Add(unsafe.Pointer(cAnyValue), C.sizeof_s_progp_anyValue))
+	}
+
 	jsf := gFunctionTable[int(id)]
-	jsf.goFunction()
+	jsf.goFunction(allAnyValues)
 	return C.JS_UNDEFINED
 }
 

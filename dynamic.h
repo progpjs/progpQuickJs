@@ -1,5 +1,5 @@
 #ifndef PROGP_STANDALONE
 
-void cgo_registerDynamicFunctions();
+void quickjs_registerDynamicFunctions();
 
 #endif

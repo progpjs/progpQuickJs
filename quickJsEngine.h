@@ -13,6 +13,17 @@
 #define PROGP_DEBUG(m) std::cout << "[C-PROGP_DEBUG] - " << m << std::endl
 #define PROGP_LOG_ERROR(FROM, WHAT) std::cout << "ERROR - " << FROM << " - " << WHAT << std::endl
 
+#define AnyValueTypeUndefined   0;
+#define AnyValueTypeNull        1;
+#define AnyValueTypeInvalid     2;
+#define AnyValueTypeNumber      3;
+#define AnyValueTypeString      4;
+#define AnyValueTypeBoolean     5;
+#define AnyValueTypeBuffer      6;
+#define AnyValueTypeFunction    7;
+#define AnyValueTypeJson        8;
+#define AnyValueTypeInt32       9;
+
 typedef struct s_progp_anyValue {
     int valueType;
     double number;
@@ -46,6 +57,7 @@ typedef struct s_quick_ctx {
     int refCount;
     bool hasResult;
     s_quick_execResult result;
+    s_progp_anyValue* inputAnyValues;
 } s_quick_ctx;
 
 void quickjs_initialize();
@@ -59,5 +71,7 @@ JSValue quick_createExternalPointer(s_quick_ctx* pCtx, void* ptr);
 
 s_quick_execResult quickjs_executeScript(s_quick_ctx* pCtx, const char* script, const char* origin);
 void quickjs_bindFunction(s_quick_ctx* pCtx, const char* functionName, int minArgCount, JSCFunction fct);
+
+s_quick_ctx* quickjs_callParamsToAnyValue(JSContext *ctx, int argc, JSValueConst *argv);
 
 #endif // QUICKJS_ENGINE_CPP

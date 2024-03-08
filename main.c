@@ -40,7 +40,6 @@ static JSValue js_stringToArrayBuffer(JSContext *ctx, JSValueConst this_val, int
 static JSValue js_arrayBufferToString(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv) {
     JSValue arg0 = argv[0];
     size_t size;
-
     uint8_t* buffer = JS_GetArrayBuffer(ctx, &size, arg0);
     return JS_NewString(ctx, (const char*) buffer);
 }
@@ -52,6 +51,27 @@ static JSValue js_receiveFunction(JSContext *ctx, JSValueConst this_val, int arg
         return JS_Call(ctx, arg0, JS_UNDEFINED, 0, NULL);
     }
 
+    return JS_UNDEFINED;
+}
+
+typedef struct QuickJString {
+    JSRefCountHeader header;
+    uint32_t len : 31;
+    uint8_t is_wide_char : 1; /* 0 = 8 bits, 1 = 16 bits characters */
+    uint32_t hash : 30;
+    uint8_t atom_type : 2;
+    uint32_t hash_next;
+#ifdef DUMP_LEAKS
+    struct list_head link; /* string list */
+#endif
+    union {
+        uint8_t str8[0]; /* 8 bit strings will get an extra null terminator */
+        uint16_t str16[0];
+    } u;
+} QuickJString;
+
+static JSValue js_decodeParams(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv) {
+    quickjs_callParamsToAnyValue(ctx, argc, argv);
     return JS_UNDEFINED;
 }
 
@@ -98,6 +118,7 @@ int main(int argc, char **argv)
     quickjs_bindFunction(pCtx, "js_stringToArrayBuffer", 1, js_stringToArrayBuffer);
     quickjs_bindFunction(pCtx, "js_arrayBufferToString", 1, js_arrayBufferToString);
     quickjs_bindFunction(pCtx, "js_receiveFunction", 1, js_receiveFunction);
+    quickjs_bindFunction(pCtx, "js_decodeParams", 1, js_decodeParams);
 
     s_quick_execResult res = quickjs_executeScript(pCtx, scriptContent, scriptPath);
 

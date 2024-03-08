@@ -54,6 +54,7 @@ s_quick_ctx* quick_createContext() {
     s_quick_ctx* pCtx = malloc(sizeof(s_quick_ctx));
     pCtx->ctx = ctx;
     pCtx->hasResult = false;
+    pCtx->inputAnyValues = calloc(15, sizeof(s_progp_anyValue));
 
     // Allows to retrieve value.
     JS_SetContextOpaque(ctx, pCtx);
@@ -136,4 +137,116 @@ void quickjs_bindFunction(s_quick_ctx* pCtx, const char* functionName, int minAr
 
 int quickjs_enqueueJob(s_quick_ctx* pCtx, JSJobFunc *job_func, int argc, JSValueConst *argv) {
     return JS_EnqueueJob(pCtx->ctx, job_func, argc, argv);
+}
+
+typedef struct s_quickJs_string {
+    JSRefCountHeader header; /* must come first, 32-bit */
+    uint32_t len : 31;
+    uint8_t is_wide_char : 1; /* 0 = 8 bits, 1 = 16 bits characters */
+    /* for JS_ATOM_TYPE_SYMBOL: hash = 0, atom_type = 3,
+       for JS_ATOM_TYPE_PRIVATE: hash = 1, atom_type = 3
+       XXX: could change encoding to have one more bit in hash */
+    uint32_t hash : 30;
+    uint8_t atom_type : 2; /* != 0 if atom, JS_ATOM_TYPE_x */
+    uint32_t hash_next; /* atom_index for JS_ATOM_TYPE_SYMBOL */
+#ifdef DUMP_LEAKS
+    struct list_head link; /* string list */
+#endif
+    union {
+        uint8_t str8[0]; /* 8 bit strings will get an extra null terminator */
+        uint16_t str16[0];
+    } u;
+} s_quickJs_string;
+
+
+static inline void jsStringToCString(JSContext *ctx, const JSValueConst jsValue, s_progp_anyValue* anyValue) {
+    s_quickJs_string* jsString = jsValue.u.ptr;
+
+    if (jsString->is_wide_char) {
+        const char* cString1 = JS_ToCString(ctx, jsValue);
+        const char* cString2 = strdup(cString1);
+        JS_FreeCString(ctx, cString1);
+        anyValue->voidPtr = (void*)cString2;
+        anyValue->mustFree = 1;
+    } else {
+        const char *str = (const char *)jsString->u.str8;
+        anyValue->voidPtr = (void*)jsString->u.str8;
+        anyValue->mustFree = 0;
+    }
+}
+
+s_quick_ctx* quickjs_callParamsToAnyValue(JSContext *ctx, int argc, JSValueConst *argv) {
+    s_quick_ctx* pCtx = (s_quick_ctx*)JS_GetContextOpaque(ctx);
+    s_progp_anyValue* values = pCtx->inputAnyValues;
+
+    int tag;
+
+    for (int i=0;i<argc;i++) {
+        JSValueConst jsValue = argv[i];
+        s_progp_anyValue* anyValue = &values[i];
+
+        tag = jsValue.tag;
+
+        if (tag == JS_TAG_UNDEFINED) {
+            anyValue->valueType = AnyValueTypeUndefined;
+            continue;
+        }
+
+        if (tag == JS_TAG_NULL) {
+            anyValue->valueType = AnyValueTypeNull;
+            continue;
+        }
+
+        if (tag == JS_TAG_INT) {
+            anyValue->valueType = AnyValueTypeInt32;
+            anyValue->size = jsValue.u.int32;
+            continue;
+        }
+
+        if (tag == JS_TAG_FLOAT64) {
+            anyValue->valueType = AnyValueTypeNumber;
+            anyValue->number = jsValue.u.float64;
+            continue;
+        }
+
+        if (tag == JS_TAG_BOOL) {
+            anyValue->valueType = AnyValueTypeBoolean;
+            anyValue->size = jsValue.u.int32;
+            continue;
+        }
+
+        if (tag == JS_TAG_STRING) {
+            anyValue->valueType = AnyValueTypeString;
+            jsStringToCString(ctx, jsValue, anyValue);
+            continue;
+        }
+
+        if (tag == JS_TAG_OBJECT) {
+            if (JS_IsFunction(ctx, jsValue)) {
+                anyValue->valueType = AnyValueTypeFunction;
+                //
+                JSValue *valuePtr = (JSValue *) malloc(sizeof(JSValue));
+                *valuePtr = JS_DupValue(ctx, jsValue);
+                anyValue->voidPtr = valuePtr;
+                anyValue->mustFree = 0;
+            } else {
+                anyValue->valueType = AnyValueTypeJson;
+                //
+                jsValue = JS_JSONStringify(ctx, jsValue, JS_UNDEFINED, JS_UNDEFINED);
+                jsStringToCString(ctx, jsValue, anyValue);
+            }
+        }
+
+        size_t size;
+        uint8_t* buffer = JS_GetArrayBuffer(ctx, &size, jsValue);
+
+        if (buffer!=NULL) {
+            anyValue->valueType = AnyValueTypeBuffer;
+            anyValue->mustFree = 0;
+            anyValue->voidPtr = buffer;
+            anyValue->mustFree = 0;
+        }
+    }
+
+    return pCtx;
 }
