@@ -1,13 +1,20 @@
 package main
 
-import "github.com/jopiserver/jsQuickJs"
+import (
+	"github.com/jopiserver/jsQuickJs"
+	"os"
+)
 
 func main() {
 	jsQuickJs.QuickInitialize()
 
-	ctx := jsQuickJs.QuickCreateContext()
+	filePath := "index.js"
+	fileContent, _ := os.ReadFile(filePath)
 
-	jsQuickJs.QuickExecuteScriptString(ctx, "<noscript>", `
-		console.log("hello");
-	`)
+	ctx := jsQuickJs.QuickCreateContext()
+	err := jsQuickJs.QuickExecuteScriptString(ctx, string(fileContent), filePath)
+
+	if err != nil {
+		err.Print()
+	}
 }

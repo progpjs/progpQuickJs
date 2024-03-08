@@ -15,7 +15,6 @@
 typedef struct s_quick_ctx s_quick_ctx;
 
 typedef struct s_quick_execResult {
-    bool isSet;
     s_quick_ctx* pCtx;
     uint8_t isException;
     JSValue result;

@@ -84,8 +84,8 @@ JSValue jobA(JSContext *ctx, int argc, JSValueConst *argv) {
 
 int main(int argc, char **argv)
 {
-    const char* scriptPath = "script.js";
-    char* scriptContent = readFile("script.js");
+    const char* scriptPath = "index.js";
+    char* scriptContent = readFile("index.js");
     if (scriptContent==NULL) return 1;
 
     quickjs_initialize();
