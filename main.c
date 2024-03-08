@@ -10,6 +10,10 @@
 // JS_IsException
 // Async: https://www.freelists.org/post/quickjs-devel/Unable-to-await-promise,1
 
+static void quickFreePointer(JSRuntime *rt, void *opaque, void *ptr) {
+    free(ptr);
+}
+
 static JSValue js_print(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv)
 {
     int i;
@@ -23,6 +27,24 @@ static JSValue js_print(JSContext *ctx, JSValueConst this_val, int argc, JSValue
     }
 
     return JS_UNDEFINED;
+}
+
+static JSValue js_stringToArrayBuffer(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv) {
+    const char* str = JS_ToCString(ctx, argv[0]);
+    if (!str) return JS_EXCEPTION;
+
+    char* buffer = strdup(str);
+    JS_FreeCString(ctx, str);
+
+    return JS_NewArrayBuffer(ctx, (uint8_t*)buffer, strlen(buffer), quickFreePointer, NULL, false);
+}
+
+static JSValue js_arrayBufferToString(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv) {
+    JSValue arg0 = argv[0];
+    size_t size;
+
+    uint8_t* buffer = JS_GetArrayBuffer(ctx, &size, arg0);
+    return JS_NewString(ctx, (const char*) buffer);
 }
 
 char* readFile(const char* filePath) {
@@ -53,6 +75,10 @@ char* readFile(const char* filePath) {
     return source;
 }
 
+JSValue jobA(JSContext *ctx, int argc, JSValueConst *argv) {
+    return JS_UNDEFINED;
+}
+
 int main(int argc, char **argv)
 {
     const char* scriptPath = "script.js";
@@ -63,8 +89,12 @@ int main(int argc, char **argv)
 
     s_quick_ctx* pCtx = quick_createContext();
     quick_bindFunction(pCtx, "js_print", 1, js_print);
+    quick_bindFunction(pCtx, "js_stringToArrayBuffer", 1, js_stringToArrayBuffer);
+    quick_bindFunction(pCtx, "js_arrayBufferToString", 1, js_arrayBufferToString);
 
     s_quick_execResult res = quick_executeScriptString(pCtx, scriptContent, scriptPath);
+
+    JS_EnqueueJob(pCtx->ctx, jobA, 0, NULL);
 
     if (res.isException) {
         PROGP_PRINT("ERROR: ");

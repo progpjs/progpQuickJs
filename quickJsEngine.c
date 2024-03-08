@@ -55,6 +55,9 @@ s_quick_ctx* quick_createContext() {
     pCtx->ctx = ctx;
     pCtx->hasResult = false;
 
+    // Allows to retrieve value.
+    JS_SetContextOpaque(ctx, pCtx);
+
     return pCtx;
 }
 
@@ -130,4 +133,8 @@ void quick_bindFunction(s_quick_ctx* pCtx, const char* functionName, int minArgC
     JSValue ctxGlobal = JS_GetGlobalObject(pCtx->ctx);
     JS_SetPropertyStr(pCtx->ctx, ctxGlobal, functionName, JS_NewCFunction(pCtx->ctx, fct, functionName, minArgCount));
     JS_FreeValue(pCtx->ctx, ctxGlobal);
+}
+
+int quick_enqueueJob(s_quick_ctx* pCtx, JSJobFunc *job_func, int argc, JSValueConst *argv) {
+    return JS_EnqueueJob(pCtx->ctx, job_func, argc, argv);
 }

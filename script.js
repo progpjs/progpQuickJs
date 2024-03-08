@@ -1,4 +1,4 @@
-function execute() {
+function test1() {
     let a = 5;
     console.log("from my script2");
     console.log("D1")
@@ -9,4 +9,9 @@ function execute() {
     boom()
 }
 
-execute()
+function test2() {
+    let buffer = js_stringToArrayBuffer("hello world");
+    console.log(js_arrayBufferToString(buffer));
+}
+
+test2();
