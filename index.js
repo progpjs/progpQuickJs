@@ -1,9 +1,6 @@
-function f2() {
-    boom()
-}
+let res = js_receiveFunction(() => {
+    console.log("Dans ma fonction")
+    return "ok 1234"
+})
 
-function f1() {
-    f2();
-}
-
-f1();
+console.log("res:", res)

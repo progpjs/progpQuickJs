@@ -50,6 +50,16 @@ static JSValue js_arrayBufferToString(JSContext *ctx, JSValueConst this_val, int
     return JS_NewString(ctx, (const char*) buffer);
 }
 
+static JSValue js_receiveFunction(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv) {
+    JSValue arg0 = argv[0];
+
+    if (JS_IsFunction(ctx, arg0)) {
+        return JS_Call(ctx, arg0, JS_UNDEFINED, 0, NULL);
+    }
+
+    return JS_UNDEFINED;
+}
+
 char* readFile(const char* filePath) {
     char *source = NULL;
     FILE *fp = fopen(filePath, "r");
@@ -78,10 +88,6 @@ char* readFile(const char* filePath) {
     return source;
 }
 
-JSValue jobA(JSContext *ctx, int argc, JSValueConst *argv) {
-    return JS_UNDEFINED;
-}
-
 int main(int argc, char **argv)
 {
     const char* scriptPath = "index.js";
@@ -94,6 +100,7 @@ int main(int argc, char **argv)
     quickjs_bindFunction(pCtx, "js_print", 1, js_print);
     quickjs_bindFunction(pCtx, "js_stringToArrayBuffer", 1, js_stringToArrayBuffer);
     quickjs_bindFunction(pCtx, "js_arrayBufferToString", 1, js_arrayBufferToString);
+    quickjs_bindFunction(pCtx, "js_receiveFunction", 1, js_receiveFunction);
 
     s_quick_execResult res = quickjs_executeScript(pCtx, scriptContent, scriptPath);
 

@@ -11,7 +11,6 @@ package jsQuickJs
 //
 import "C"
 import (
-	"github.com/jopiserver/jsCommon"
 	"runtime"
 	"strconv"
 	"strings"
@@ -55,7 +54,7 @@ func (m *Context) KeepAlive() {
 	runtime.SetFinalizer(m, (*Context).Dispose)
 }
 
-func (m *Context) ExecuteScript(script string, scriptOrigin string) *jsCommon.JsErrorMessage {
+func (m *Context) ExecuteScript(script string, scriptOrigin string) *JsErrorMessage {
 	cScript := C.CString(script)
 	defer func() { C.free(unsafe.Pointer(cScript)) }()
 
@@ -68,15 +67,15 @@ func (m *Context) ExecuteScript(script string, scriptOrigin string) *jsCommon.Js
 	return nil
 }
 
-func createErrorMessage(scriptPath string, title string, body string) *jsCommon.JsErrorMessage {
-	res := &jsCommon.JsErrorMessage{}
+func createErrorMessage(scriptPath string, title string, body string) *JsErrorMessage {
+	res := &JsErrorMessage{}
 	res.Error = title
 	res.ScriptPath = scriptPath
 
 	lines := strings.Split(body, "\n")
 
 	for _, line := range lines {
-		frame := jsCommon.StackTraceFrame{}
+		frame := StackTraceFrame{}
 		idx1 := strings.Index(line, "at")
 		if idx1 == -1 {
 			break
