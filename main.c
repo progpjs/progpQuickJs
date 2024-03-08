@@ -1,17 +1,12 @@
 #include <stdio.h>
 #include <stdlib.h>
-#include <stdbool.h>
 #include <string.h>
-#include <math.h>
+
 #include "quickJsEngine.h"
 
 #ifdef PROGP_STANDALONE
 
-// To see:
-// ctx.JS_GetException
-// JS_EXCEPTION
-// JS_IsException
-// Async: https://www.freelists.org/post/quickjs-devel/Unable-to-await-promise,1
+//region Sample functions
 
 static void quickFreePointer(JSRuntime *rt, void *opaque, void *ptr) {
     free(ptr);
@@ -59,6 +54,8 @@ static JSValue js_receiveFunction(JSContext *ctx, JSValueConst this_val, int arg
 
     return JS_UNDEFINED;
 }
+
+//endregion
 
 char* readFile(const char* filePath) {
     char *source = NULL;

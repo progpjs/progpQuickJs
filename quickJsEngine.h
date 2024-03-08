@@ -2,6 +2,7 @@
 #include <stdbool.h>
 
 #ifndef QUICKJS_ENGINE_CPP
+#define QUICKJS_ENGINE_CPP
 
 // -- Doc --
 // https://bellard.org/quickjs/quickjs.html
@@ -11,6 +12,24 @@
 #define PROGP_PRINTLN(m) printf("%s\n", m)
 #define PROGP_DEBUG(m) std::cout << "[C-PROGP_DEBUG] - " << m << std::endl
 #define PROGP_LOG_ERROR(FROM, WHAT) std::cout << "ERROR - " << FROM << " - " << WHAT << std::endl
+
+typedef struct s_progp_anyValue {
+    int valueType;
+    double number;
+    void* voidPtr;
+    int size;
+
+    // Used when returning a value in order to
+    // declare an error. The value is automatically
+    // deleted after consumed.
+    //
+    char* errorMessage;
+
+    // mustFree is used from the Go side.
+    // Allows knowing if the value voidPtr must be free.
+    //
+    int mustFree;
+} s_progp_anyValue;
 
 typedef struct s_quick_ctx s_quick_ctx;
 
@@ -35,6 +54,8 @@ void quickjs_exit();
 s_quick_ctx* quick_createContext();
 void quickjs_incrContext(s_quick_ctx* pCtx);
 void quickjs_decrContext(s_quick_ctx* pCtx);
+
+JSValue quick_createExternalPointer(s_quick_ctx* pCtx, void* ptr);
 
 s_quick_execResult quickjs_executeScript(s_quick_ctx* pCtx, const char* script, const char* origin);
 void quickjs_bindFunction(s_quick_ctx* pCtx, const char* functionName, int minArgCount, JSCFunction fct);

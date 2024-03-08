@@ -4,6 +4,8 @@
 
 #include "quickjs-libc.h"
 
+JSRuntime *gRuntime;
+
 static JSContext *customQuickJsContext(JSRuntime *rt)
 {
     JSContext *ctx = JS_NewContextRaw(rt);
@@ -23,8 +25,6 @@ static JSContext *customQuickJsContext(JSRuntime *rt)
 
     return ctx;
 }
-
-JSRuntime *gRuntime;
 
 void quickjs_freeExecResult(s_quick_execResult res);
 
@@ -93,7 +93,6 @@ s_quick_execResult quickjs_executeScript(s_quick_ctx* pCtx, const char* script, 
 
     if (JS_IsException(res.result)) {
         res.isException = true;
-        //js_std_dump_error(ctx);
 
         JSValue exception_val = JS_GetException(pCtx->ctx);
         bool is_error = JS_IsError(pCtx->ctx, exception_val);
