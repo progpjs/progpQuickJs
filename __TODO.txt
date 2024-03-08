@@ -1,7 +1,5 @@
 [x] POC de toutes les base, dont ArrayBuffer.
-
-[ ] Tester avec Go
-    -> Va juste appeler quick_initialize pour voir
+[x] Tester avec Go
 
 [ ] Tester de compiler sous Linux ARM
 [ ] Idem x64

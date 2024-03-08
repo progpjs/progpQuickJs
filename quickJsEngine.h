@@ -1,4 +1,5 @@
 #include "quickjs.h"
+#include <stdbool.h>
 
 #ifndef QUICKJS_ENGINE_CPP
 

@@ -4,6 +4,8 @@
 #include <string.h>
 #include "quickJsEngine.h"
 
+#ifdef PROGP_STANDALONE
+
 // To see:
 // ctx.JS_GetException
 // JS_EXCEPTION
@@ -94,8 +96,6 @@ int main(int argc, char **argv)
 
     s_quick_execResult res = quick_executeScriptString(pCtx, scriptContent, scriptPath);
 
-    JS_EnqueueJob(pCtx->ctx, jobA, 0, NULL);
-
     if (res.isException) {
         PROGP_PRINT("ERROR: ");
         PROGP_PRINTLN(res.errorTitle);
@@ -108,3 +108,5 @@ int main(int argc, char **argv)
     free(scriptContent);
     return 0;
 }
+
+#endif // PROGP_STANDALONE
