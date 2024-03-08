@@ -83,7 +83,7 @@ void quickjs_decrContext(s_quick_ctx* pCtx) {
     }
 }
 
-s_quick_execResult quickjs_executeScriptString(s_quick_ctx* pCtx, const char* script, const char* origin) {
+s_quick_execResult quickjs_executeScript(s_quick_ctx* pCtx, const char* script, const char* origin) {
     quickjs_incrContext(pCtx);
 
     s_quick_execResult res;

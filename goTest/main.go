@@ -6,13 +6,13 @@ import (
 )
 
 func main() {
-	jsQuickJs.QuickInitialize()
+	jsQuickJs.InitializeEngine()
 
 	filePath := "index.js"
 	fileContent, _ := os.ReadFile(filePath)
 
-	ctx := jsQuickJs.QuickCreateContext()
-	err := jsQuickJs.QuickExecuteScriptString(ctx, string(fileContent), filePath)
+	ctx := jsQuickJs.CreateContext()
+	err := jsQuickJs.ExecuteScript(ctx, string(fileContent), filePath)
 
 	if err != nil {
 		err.Print()

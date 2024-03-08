@@ -95,7 +95,7 @@ int main(int argc, char **argv)
     quickjs_bindFunction(pCtx, "js_stringToArrayBuffer", 1, js_stringToArrayBuffer);
     quickjs_bindFunction(pCtx, "js_arrayBufferToString", 1, js_arrayBufferToString);
 
-    s_quick_execResult res = quickjs_executeScriptString(pCtx, scriptContent, scriptPath);
+    s_quick_execResult res = quickjs_executeScript(pCtx, scriptContent, scriptPath);
 
     if (res.isException) {
         PROGP_PRINT("ERROR: ");

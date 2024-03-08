@@ -12,28 +12,54 @@ package jsQuickJs
 import "C"
 import (
 	"github.com/jopiserver/jsCommon"
+	"runtime"
 	"strconv"
 	"strings"
 	"unsafe"
 )
 
 var cUInt8True = C.uint8_t(1)
+var gScriptOrigin = C.CString("<scriptOrigin>")
 
-func QuickInitialize() {
+func InitializeEngine() {
 	C.quickjs_initialize()
 }
 
-func QuickCreateContext() *C.s_quick_ctx {
-	return C.quick_createContext()
+type Context struct {
+	ctx         *C.s_quick_ctx
+	isKeepAlive bool
 }
 
-var gScriptOrigin = C.CString("<scriptOrigin>")
+func NewContext() *Context {
+	return &Context{ctx: C.quick_createContext()}
+}
 
-func QuickExecuteScriptString(ctx *C.s_quick_ctx, script string, scriptOrigin string) *jsCommon.JsErrorMessage {
+func (m *Context) Dispose() {
+	if m.isKeepAlive {
+		C.quickjs_decrContext(m.ctx)
+		m.isKeepAlive = false
+	}
+}
+
+// KeepAlive allows to avoid destroying the context once the script executed.
+// Without that the internal ref counter will automatically destroy the context.
+func (m *Context) KeepAlive() {
+	if m.isKeepAlive {
+		return
+	}
+
+	m.isKeepAlive = true
+	C.quickjs_incrContext(m.ctx)
+
+	// Will dispose the context on the GC run if no more references.
+	runtime.SetFinalizer(m, (*Context).Dispose)
+}
+
+func (m *Context) ExecuteScript(ctx *C.s_quick_ctx, script string, scriptOrigin string) *jsCommon.JsErrorMessage {
 	cScript := C.CString(script)
 	defer func() { C.free(unsafe.Pointer(cScript)) }()
 
-	res := C.quickjs_executeScriptString(ctx, cScript, gScriptOrigin)
+	res := C.quickjs_executeScript(m.ctx, cScript, gScriptOrigin)
 
 	if res.isException == cUInt8True {
 		return createErrorMessage(scriptOrigin, C.GoString(res.errorTitle), C.GoString(res.errorStackTrace))

@@ -36,7 +36,7 @@ s_quick_ctx* quick_createContext();
 void quickjs_incrContext(s_quick_ctx* pCtx);
 void quickjs_decrContext(s_quick_ctx* pCtx);
 
-s_quick_execResult quickjs_executeScriptString(s_quick_ctx* pCtx, const char* script, const char* origin);
+s_quick_execResult quickjs_executeScript(s_quick_ctx* pCtx, const char* script, const char* origin);
 void quickjs_bindFunction(s_quick_ctx* pCtx, const char* functionName, int minArgCount, JSCFunction fct);
 
 #endif // QUICKJS_ENGINE_CPP
