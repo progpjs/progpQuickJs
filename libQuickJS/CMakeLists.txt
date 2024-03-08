@@ -1,6 +1,6 @@
 # Allows to build QuickJS library as "libquickjs.a".
 
-cmake_minimum_required(VERSION 3.25)
+cmake_minimum_required(VERSION 3.10)
 
 project(quickjs C)
 

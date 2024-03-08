@@ -1,7 +1,7 @@
 [x] POC de toutes les base, dont ArrayBuffer.
 [x] Tester avec Go
+[x] Tester de compiler sous Linux x64
+[x] Idem Linux ARM
 
-[ ] Tester de compiler sous Linux ARM
-[ ] Idem x64
 [ ] Idem Windows
 

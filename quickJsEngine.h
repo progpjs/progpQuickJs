@@ -30,14 +30,14 @@ typedef struct s_quick_ctx {
     s_quick_execResult result;
 } s_quick_ctx;
 
-void quick_initialize();
-void quick_exit();
+void quickjs_initialize();
+void quickjs_exit();
 
 s_quick_ctx* quick_createContext();
-void quick_incrContext(s_quick_ctx* pCtx);
-void quick_decrContext(s_quick_ctx* pCtx);
+void quickjs_incrContext(s_quick_ctx* pCtx);
+void quickjs_decrContext(s_quick_ctx* pCtx);
 
-s_quick_execResult quick_executeScriptString(s_quick_ctx* pCtx, const char* script, const char* origin);
-void quick_bindFunction(s_quick_ctx* pCtx, const char* functionName, int minArgCount, JSCFunction fct);
+s_quick_execResult quickjs_executeScriptString(s_quick_ctx* pCtx, const char* script, const char* origin);
+void quickjs_bindFunction(s_quick_ctx* pCtx, const char* functionName, int minArgCount, JSCFunction fct);
 
 #endif // QUICKJS_ENGINE_CPP

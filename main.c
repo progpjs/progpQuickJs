@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <stdbool.h>
 #include <string.h>
+#include <math.h>
 #include "quickJsEngine.h"
 
 #ifdef PROGP_STANDALONE
@@ -87,14 +88,14 @@ int main(int argc, char **argv)
     char* scriptContent = readFile("script.js");
     if (scriptContent==NULL) return 1;
 
-    quick_initialize();
+    quickjs_initialize();
 
     s_quick_ctx* pCtx = quick_createContext();
-    quick_bindFunction(pCtx, "js_print", 1, js_print);
-    quick_bindFunction(pCtx, "js_stringToArrayBuffer", 1, js_stringToArrayBuffer);
-    quick_bindFunction(pCtx, "js_arrayBufferToString", 1, js_arrayBufferToString);
+    quickjs_bindFunction(pCtx, "js_print", 1, js_print);
+    quickjs_bindFunction(pCtx, "js_stringToArrayBuffer", 1, js_stringToArrayBuffer);
+    quickjs_bindFunction(pCtx, "js_arrayBufferToString", 1, js_arrayBufferToString);
 
-    s_quick_execResult res = quick_executeScriptString(pCtx, scriptContent, scriptPath);
+    s_quick_execResult res = quickjs_executeScriptString(pCtx, scriptContent, scriptPath);
 
     if (res.isException) {
         PROGP_PRINT("ERROR: ");
@@ -102,8 +103,8 @@ int main(int argc, char **argv)
         PROGP_PRINTLN(res.errorStackTrace);
     }
 
-    quick_decrContext(pCtx);
-    quick_exit();
+    quickjs_decrContext(pCtx);
+    quickjs_exit();
 
     free(scriptContent);
     return 0;

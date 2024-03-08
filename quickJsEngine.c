@@ -26,15 +26,15 @@ static JSContext *customQuickJsContext(JSRuntime *rt)
 
 JSRuntime *gRuntime;
 
-void quick_freeExecResult(s_quick_execResult res);
+void quickjs_freeExecResult(s_quick_execResult res);
 
-void quick_exit() {
+void quickjs_exit() {
     // Free the engine.
     js_std_free_handlers(gRuntime);
     JS_FreeRuntime(gRuntime);
 }
 
-void quick_initialize() {
+void quickjs_initialize() {
     gRuntime = JS_NewRuntime();
 
     js_std_set_worker_new_context_func(customQuickJsContext);
@@ -61,21 +61,21 @@ s_quick_ctx* quick_createContext() {
     return pCtx;
 }
 
-void quick_incrContext(s_quick_ctx* pCtx) {
+void quickjs_incrContext(s_quick_ctx* pCtx) {
     pCtx->refCount++;
 
     if (pCtx->hasResult) {
-        quick_freeExecResult(pCtx->result);
+        quickjs_freeExecResult(pCtx->result);
         pCtx->hasResult = false;
     }
 }
 
-void quick_decrContext(s_quick_ctx* pCtx) {
+void quickjs_decrContext(s_quick_ctx* pCtx) {
     pCtx->refCount--;
 
     if (pCtx->refCount==0) {
         if (pCtx->hasResult) {
-            quick_freeExecResult(pCtx->result);
+            quickjs_freeExecResult(pCtx->result);
         }
 
         JS_FreeContext(pCtx->ctx);
@@ -83,8 +83,8 @@ void quick_decrContext(s_quick_ctx* pCtx) {
     }
 }
 
-s_quick_execResult quick_executeScriptString(s_quick_ctx* pCtx, const char* script, const char* origin) {
-    quick_incrContext(pCtx);
+s_quick_execResult quickjs_executeScriptString(s_quick_ctx* pCtx, const char* script, const char* origin) {
+    quickjs_incrContext(pCtx);
 
     s_quick_execResult res;
     res.result = JS_Eval(pCtx->ctx, script, strlen(script), origin, JS_EVAL_TYPE_GLOBAL);
@@ -120,7 +120,7 @@ s_quick_execResult quick_executeScriptString(s_quick_ctx* pCtx, const char* scri
     return res;
 }
 
-void quick_freeExecResult(s_quick_execResult res) {
+void quickjs_freeExecResult(s_quick_execResult res) {
     if (res.isException) {
         if (res.errorTitle != NULL) JS_FreeCString(res.pCtx->ctx, res.errorTitle);
         if (res.errorStackTrace != NULL) JS_FreeCString(res.pCtx->ctx, res.errorStackTrace);
@@ -129,12 +129,12 @@ void quick_freeExecResult(s_quick_execResult res) {
     JS_FreeValue(res.pCtx->ctx, res.result);
 }
 
-void quick_bindFunction(s_quick_ctx* pCtx, const char* functionName, int minArgCount, JSCFunction fct) {
+void quickjs_bindFunction(s_quick_ctx* pCtx, const char* functionName, int minArgCount, JSCFunction fct) {
     JSValue ctxGlobal = JS_GetGlobalObject(pCtx->ctx);
     JS_SetPropertyStr(pCtx->ctx, ctxGlobal, functionName, JS_NewCFunction(pCtx->ctx, fct, functionName, minArgCount));
     JS_FreeValue(pCtx->ctx, ctxGlobal);
 }
 
-int quick_enqueueJob(s_quick_ctx* pCtx, JSJobFunc *job_func, int argc, JSValueConst *argv) {
+int quickjs_enqueueJob(s_quick_ctx* pCtx, JSJobFunc *job_func, int argc, JSValueConst *argv) {
     return JS_EnqueueJob(pCtx->ctx, job_func, argc, argv);
 }

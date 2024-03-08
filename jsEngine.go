@@ -1,7 +1,7 @@
 package jsQuickJs
 
 // #cgo CFLAGS: -I${SRCDIR}/libQuickJS/src
-// #cgo LDFLAGS: -pthread -lquickjs
+// #cgo LDFLAGS: -pthread -lquickjs -lm -L${SRCDIR}/libQuickJS/linux_x86_64 -ldl
 // #cgo darwin,arm64 LDFLAGS: -L${SRCDIR}/libQuickJS/Darwin
 // #cgo linux,amd64 LDFLAGS: -L${SRCDIR}/libQuickJS/linux_x86_64 -ldl
 // #cgo linux,arm64 LDFLAGS: -L${SRCDIR}/libQuickJS/linux_arm64 -ldl
@@ -13,7 +13,7 @@ import "C"
 import "unsafe"
 
 func QuickInitialize() {
-	C.quick_initialize()
+	C.quickjs_initialize()
 }
 
 func QuickCreateContext() *C.s_quick_ctx {
@@ -29,5 +29,5 @@ func QuickExecuteScriptString(ctx *C.s_quick_ctx, origin string, script string) 
 		C.free(unsafe.Pointer(cOrigin))
 	}()
 
-	return C.quick_executeScriptString(ctx, cScript, cOrigin)
+	return C.quickjs_executeScriptString(ctx, cScript, cOrigin)
 }

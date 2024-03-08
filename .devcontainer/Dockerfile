@@ -3,27 +3,13 @@
 
 FROM ubuntu:20.04
 
+# ...
+ENV PATH="/usr/local/go/bin:${PATH}"
+
 RUN DEBIAN_FRONTEND="noninteractive" apt-get update && apt-get -y install tzdata
 
-RUN apt-get update  \
-    \
-    && apt-get install -y build-essential \
-      gcc \
-      g++ \
-      gdb \
-      clang \
-      make \
-      ninja-build \
-      cmake \
-      autoconf \
-      automake \
-      libtool \
-      valgrind \
-      locales-all \
-      dos2unix \
-      rsync \
-      tar \
-      python \
-      python-dev  \
-    \
+RUN apt-get install -y build-essential gcc g++ make ninja-build cmake tar wget \
     && apt-get clean
+
+RUN wget https://go.dev/dl/go1.22.1.linux-arm64.tar.gz \
+    && tar -C /usr/local -xzf go1.22.1.linux-arm64.tar.gz
