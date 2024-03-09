@@ -50,8 +50,11 @@ typedef struct s_quick_error {
 
 typedef struct s_quick_ctx {
     int refCount;
-    JSContext* ctx;
     void* userData;
+
+    JSContext* ctx;
+    JSRuntime *runtime;
+
     bool hasException;
     s_quick_error execException;
     q_quick_anyValue* inputAnyValues;
@@ -76,13 +79,6 @@ void quickjs_decrContext(s_quick_ctx* pCtx);
 
 s_quick_error* quickjs_executeScript(s_quick_ctx* pCtx, const char* script, const char* origin);
 void quickjs_bindFunction(s_quick_ctx* pCtx, const char* functionName, int minArgCount, JSCFunction fct);
-
-//endregion
-
-//region Engine
-
-void quickjs_initialize();
-void quickjs_exit();
 
 //endregion
 

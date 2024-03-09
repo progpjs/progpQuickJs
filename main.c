@@ -94,8 +94,6 @@ int main(int argc, char **argv)
     char* scriptContent = readFile("index.js");
     if (scriptContent==NULL) return 1;
 
-    quickjs_initialize();
-
     s_quick_ctx* pCtx = quick_createContext(NULL);
     quickjs_bindFunction(pCtx, "js_print", 1, js_print);
     quickjs_bindFunction(pCtx, "js_stringToArrayBuffer", 1, js_stringToArrayBuffer);
@@ -110,8 +108,6 @@ int main(int argc, char **argv)
         DEBUG_PRINT_KeepLine(err->errorTitle);
         DEBUG_PRINT_KeepLine(err->errorStackTrace);
     }
-
-    quickjs_exit();
 
     free(scriptContent);
     return 0;

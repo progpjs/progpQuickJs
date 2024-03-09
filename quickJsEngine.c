@@ -4,9 +4,6 @@
 
 #include "quickjs-libc.h"
 
-//region Global
-
-JSRuntime *gRuntime;
 
 typedef struct s_quickJs_string {
     JSRefCountHeader header; /* must come first, 32-bit */
@@ -28,9 +25,13 @@ typedef struct s_quickJs_string {
 } s_quickJs_string;
 
 // Allows to check the ref count of an object when debugging.
-typedef struct s_quickJs_withRefCount {
+typedef struct s_quickJs_withHeader {
     int ref_count;
-} s_quickJs_withRefCount;
+} s_quickJs_withHeader;
+
+typedef struct s_quickJs_gcItem {
+    s_quickJs_withHeader header;
+} s_quickJs_gcItem;
 
 static inline void jsStringToCString(JSContext *ctx, const JSValueConst jsValue, q_quick_anyValue* anyValue) {
     s_quickJs_string* jsString = jsValue.u.ptr;
@@ -127,6 +128,17 @@ void freeInputParams(JSContext *ctx, q_quick_anyValue* values, int maxCount) {
     }
 }
 
+void disposeContext(s_quick_ctx* pCtx) {
+    if (pCtx->hasException) {
+        freeExecException(pCtx);
+        pCtx->hasException = false;
+    }
+
+    if (pCtx->lastInputParamCount!=0) {
+        freeInputParams(pCtx->ctx, pCtx->inputAnyValues, pCtx->lastInputParamCount);
+    }
+}
+
 static JSContext *customQuickJsContext(JSRuntime *rt)
 {
     JSContext *ctx = JS_NewContextRaw(rt);
@@ -148,7 +160,16 @@ static JSContext *customQuickJsContext(JSRuntime *rt)
 }
 
 s_quick_ctx* quick_createContext(void *userData) {
-    JSContext* ctx = customQuickJsContext(gRuntime);
+    JSRuntime* runtime = JS_NewRuntime();
+
+    js_std_set_worker_new_context_func(customQuickJsContext);
+    js_std_init_handlers(runtime);
+    JS_SetModuleLoaderFunc(runtime, NULL, js_module_loader, NULL);
+
+    gEventOnContextReleased = NULL;
+    gEventOnAutoDisposeResourceReleased = NULL;
+
+    JSContext* ctx = customQuickJsContext(runtime);
 
     // No use of the command line here.
     js_std_add_helpers(ctx, -1, NULL);
@@ -158,6 +179,7 @@ s_quick_ctx* quick_createContext(void *userData) {
 
     s_quick_ctx* pCtx = malloc(sizeof(s_quick_ctx));
     pCtx->ctx = ctx;
+    pCtx->runtime = runtime;
     pCtx->userData = userData;
     pCtx->hasException = false;
     pCtx->execException.pCtx = pCtx;
@@ -188,15 +210,6 @@ void quickjs_decrContext(s_quick_ctx* pCtx) {
         gEventOnContextReleased(pCtx);
         if (pCtx->refCount!=0) return;
     }
-}
-
-// JS_FreeContext don't do anything (ref count bug?)
-// It's why we don't delete the context anymore.
-//
-void quickjs_decrContext__old(s_quick_ctx* pCtx) {
-    pCtx->refCount--;
-    if (pCtx->refCount!=0) return;
-
 
     if (pCtx->hasException) {
         freeExecException(pCtx);
@@ -207,25 +220,18 @@ void quickjs_decrContext__old(s_quick_ctx* pCtx) {
         freeInputParams(pCtx->ctx, pCtx->inputAnyValues, pCtx->lastInputParamCount);
     }
 
-    /*s_quickJs_withRefCount* wrf = (s_quickJs_withRefCount*)pCtx->ctx;
-    printf("quickjs_decrContext - %d\n", wrf->ref_count);
-    JS_RunGC(gRuntime);
-    printf("quickjs_decrContext - %d\n", wrf->ref_count);*/
+    //s_quickJs_gcItem* gcItem = pCtx->ctx;
+    //printf("ref count = %d\n", gcItem->header.ref_count);
 
-    // Warning: the function exit immediatly without releasing anything.
-    //      It's seem to be du to "if (--ctx->header.ref_count > 0) return;".
-    //      Here the counter is never 0. Seem to be du to "customQuickJsContext".
-    //      but even without that the count is at least 5.
+    // Releasing a context don't free his memory untile the runtime is destroyed.
+    // So we have to release the runtime himsef.
     //
-    // Disabled since it not ok.
-    // JS_FreeContext(pCtx->ctx);
+    JS_FreeContext(pCtx->ctx);
 
-    if (gEventOnContextReleased!=NULL) {
-        gEventOnContextReleased(pCtx);
-        if (pCtx->refCount!=0) return;
-    }
+    js_std_free_handlers(pCtx->runtime);
+    JS_FreeRuntime(pCtx->runtime);
 
-    //free(pCtx);
+    free(pCtx);
 }
 
 s_quick_error* quickjs_executeScript(s_quick_ctx* pCtx, const char* script, const char* origin) {
@@ -234,27 +240,6 @@ s_quick_error* quickjs_executeScript(s_quick_ctx* pCtx, const char* script, cons
     s_quick_error* err = checkExecException(pCtx, jsRes);
     quickjs_decrContext(pCtx);
     return err;
-}
-
-//endregion
-
-//region Engine
-
-void quickjs_exit() {
-    // Free the engine.
-    js_std_free_handlers(gRuntime);
-    JS_FreeRuntime(gRuntime);
-}
-
-void quickjs_initialize() {
-    gRuntime = JS_NewRuntime();
-
-    js_std_set_worker_new_context_func(customQuickJsContext);
-    js_std_init_handlers(gRuntime);
-    JS_SetModuleLoaderFunc(gRuntime, NULL, js_module_loader, NULL);
-
-    gEventOnContextReleased = NULL;
-    gEventOnAutoDisposeResourceReleased = NULL;
 }
 
 //endregion

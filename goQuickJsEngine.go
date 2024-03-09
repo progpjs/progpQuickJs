@@ -189,6 +189,9 @@ func (m *Context) decrRef() {
 }
 
 func (m *Context) dispose() {
+	// Will destroy the context and the runtime when gc-ref is 0.
+	// We context keep the context since his memory isn't really free until the runtime is free.
+
 	C.quickjs_decrContext(m.ptr)
 	m.cleanUpTrackedResources(true)
 	m.trackedResourceTail = nil

@@ -1,1 +1,2 @@
-js_stringToArrayBuffer("hello");
+//js_stringToArrayBuffer("hello");
+console.log("ok")

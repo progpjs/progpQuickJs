@@ -4,7 +4,6 @@
 #include "_cgo_export.h"
 
 void quickjs_cgoInitialize() {
-    quickjs_initialize();
     quickjs_setEventOnContextReleased(cgoOnContextReleased);
     quickjs_setEventOnAutoDisposeResourceReleased(cgoOnAutoDisposeResourceReleased);
 }
