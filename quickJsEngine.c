@@ -5,6 +5,7 @@
 #include "quickjs-libc.h"
 
 JSRuntime *gRuntime;
+f_quickjs_OnContextDestroyed gEventOnContextDestroyed;
 
 void freeInputParams(JSContext *ctx, s_progp_anyValue* values, int maxCount);
 
@@ -63,6 +64,8 @@ void quickjs_initialize() {
     js_std_set_worker_new_context_func(customQuickJsContext);
     js_std_init_handlers(gRuntime);
     JS_SetModuleLoaderFunc(gRuntime, NULL, js_module_loader, NULL);
+
+    gEventOnContextDestroyed = NULL;
 }
 
 s_quick_ctx* quick_createContext(void *userData) {
@@ -101,6 +104,11 @@ void quickjs_decrContext(s_quick_ctx* pCtx) {
     pCtx->refCount--;
 
     if (pCtx->refCount==0) {
+        if (gEventOnContextDestroyed!=NULL) {
+            gEventOnContextDestroyed(pCtx);
+            if (pCtx->refCount!=0) return;
+        }
+
         if (pCtx->hasResult) {
             quickjs_freeExecResult(pCtx->result);
         }
@@ -110,6 +118,7 @@ void quickjs_decrContext(s_quick_ctx* pCtx) {
         }
 
         JS_FreeContext(pCtx->ctx);
+
         free(pCtx);
     }
 }
@@ -147,6 +156,7 @@ s_quick_execResult quickjs_executeScript(s_quick_ctx* pCtx, const char* script, 
     pCtx->hasResult = true;
     pCtx->result = res;
 
+    quickjs_decrContext(pCtx);
     return res;
 }
 
@@ -283,4 +293,8 @@ s_quick_ctx* quickjs_callParamsToAnyValue(JSContext *ctx, int argc, JSValueConst
 void quickjs_callFunction(s_quick_ctx* pCtx, JSValue* host) {
     JSValue res = JS_Call(pCtx->ctx, *host, JS_UNDEFINED, 0, NULL);
     JS_FreeValue(pCtx->ctx, res);
+}
+
+void quickjs_setEventOnContextDestroyed(f_quickjs_OnContextDestroyed callback) {
+    gEventOnContextDestroyed = callback;
 }

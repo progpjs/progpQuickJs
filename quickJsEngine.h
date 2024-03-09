@@ -8,8 +8,8 @@
 // https://bellard.org/quickjs/quickjs.html
 // https://blogs.igalia.com/compilers/2023/06/12/quickjs-an-overview-and-guide-to-adding-a-new-feature/
 
-#define PROGP_PRINT(m) printf("%s", m)
-#define PROGP_PRINTLN(m) printf("%s\n", m)
+#define PROGP_PRINT(m) printf("%s\n", m)
+#define PROGP_PRINT_KeepLine(m) printf("%s", m)
 #define PROGP_DEBUG(m) std::cout << "[C-PROGP_DEBUG] - " << m << std::endl
 #define PROGP_LOG_ERROR(FROM, WHAT) std::cout << "ERROR - " << FROM << " - " << WHAT << std::endl
 
@@ -74,5 +74,8 @@ s_quick_execResult quickjs_executeScript(s_quick_ctx* pCtx, const char* script, 
 void quickjs_bindFunction(s_quick_ctx* pCtx, const char* functionName, int minArgCount, JSCFunction fct);
 
 s_quick_ctx* quickjs_callParamsToAnyValue(JSContext *ctx, int argc, JSValueConst *argv);
+
+typedef void (*f_quickjs_OnContextDestroyed)(s_quick_ctx* ctx);
+void quickjs_setEventOnContextDestroyed(f_quickjs_OnContextDestroyed callback);
 
 #endif // QUICKJS_ENGINE_CPP

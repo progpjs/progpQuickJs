@@ -124,11 +124,10 @@ int main(int argc, char **argv)
 
     if (res.isException) {
         PROGP_PRINT("ERROR: ");
-        PROGP_PRINTLN(res.errorTitle);
-        PROGP_PRINTLN(res.errorStackTrace);
+        PROGP_PRINT_KeepLine(res.errorTitle);
+        PROGP_PRINT_KeepLine(res.errorStackTrace);
     }
 
-    quickjs_decrContext(pCtx);
     quickjs_exit();
 
     free(scriptContent);

@@ -3,6 +3,11 @@
 #include "quickJsEngine.h"
 #include "_cgo_export.h"
 
+void quickjs_cgoInitialize() {
+    quickjs_initialize();
+    quickjs_setEventOnContextDestroyed(cgoOnContextDestroyed);
+}
+
 JSValue callDynamicFunctionWith(int fctId, JSContext *ctx, int argc, JSValueConst *argv) {
     s_quick_ctx* pCtx = quickjs_callParamsToAnyValue(ctx, argc, argv);
     return cgoCallDynamicFunction(fctId, pCtx, argc);
