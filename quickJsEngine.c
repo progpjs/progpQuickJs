@@ -4,7 +4,6 @@
 
 #include "quickjs-libc.h"
 
-
 typedef struct s_quickJs_string {
     JSRefCountHeader header; /* must come first, 32-bit */
     uint32_t len : 31;
@@ -159,15 +158,17 @@ static JSContext *customQuickJsContext(JSRuntime *rt)
     return ctx;
 }
 
-s_quick_ctx* quick_createContext(void *userData) {
+void quickjs_initialize() {
+    gEventOnContextReleased = NULL;
+    gEventOnAutoDisposeResourceReleased = NULL;
+}
+
+s_quick_ctx* quickjs_createContext(void *userData) {
     JSRuntime* runtime = JS_NewRuntime();
 
     js_std_set_worker_new_context_func(customQuickJsContext);
     js_std_init_handlers(runtime);
     JS_SetModuleLoaderFunc(runtime, NULL, js_module_loader, NULL);
-
-    gEventOnContextReleased = NULL;
-    gEventOnAutoDisposeResourceReleased = NULL;
 
     JSContext* ctx = customQuickJsContext(runtime);
 
@@ -236,6 +237,7 @@ void quickjs_decrContext(s_quick_ctx* pCtx) {
 
 s_quick_error* quickjs_executeScript(s_quick_ctx* pCtx, const char* script, const char* origin) {
     quickjs_incrContext(pCtx);
+
     JSValue jsRes = JS_Eval(pCtx->ctx, script, strlen(script), origin, JS_EVAL_TYPE_GLOBAL);
     s_quick_error* err = checkExecException(pCtx, jsRes);
     quickjs_decrContext(pCtx);
@@ -371,10 +373,7 @@ void quickjs_releaseFunction(s_quick_ctx* pCtx, JSValue* host) {
 
 static void onGcAutoReleaseResource(JSRuntime *rt, void *opaque, void *buffer) {
     if (gEventOnAutoDisposeResourceReleased!=NULL) {
-        DEBUG_PRINT("Releasing auto resource");
         gEventOnAutoDisposeResourceReleased(opaque);
-    } else {
-        DEBUG_PRINT("Releasing auto resource - no handler found");
     }
 }
 

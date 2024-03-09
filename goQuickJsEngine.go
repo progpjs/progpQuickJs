@@ -21,47 +21,14 @@ import (
 //
 import "C"
 
+//region Context
+
 var gScriptOrigin = C.CString("<scriptOrigin>")
 
 var gNextFunctionId = 0
+var gIsEngineInitialized bool
 var gFunctionTable = make([]registeredFunction, 500)
 var gCFunctionTable = make([]*C.JSCFunction, 500)
-
-type registeredFunction struct {
-	name       *C.char
-	goFunction func(ctx *Context, value []AnyValue)
-
-	paramCount C.int
-	cFunction  *C.JSCFunction
-	isAsync    bool
-}
-
-func InitializeEngine() {
-	C.quickjs_cgoInitialize()
-	C.quickjs_registerDynamicFunctions()
-}
-
-func RegisterAsyncFunction(jsName string, toCall func(ctx *Context, value []AnyValue)) {
-	auxRegisterFunction(jsName, toCall, true)
-}
-
-func RegisterFunction(jsName string, toCall func(ctx *Context, value []AnyValue)) {
-	auxRegisterFunction(jsName, toCall, false)
-}
-
-func auxRegisterFunction(jsName string, toCall func(ctx *Context, value []AnyValue), isAsync bool) {
-	id := gNextFunctionId
-	gNextFunctionId++
-
-	gFunctionTable[id] = registeredFunction{
-		name:       C.CString(jsName),
-		goFunction: toCall,
-		cFunction:  gCFunctionTable[id],
-		isAsync:    isAsync,
-	}
-}
-
-//region Context
 
 type Context struct {
 	ptr          *C.s_quick_ctx
@@ -80,10 +47,14 @@ type Context struct {
 type ErrorHandler func(*Context, *JsErrorMessage) bool
 
 func NewContext() *Context {
+	if !gIsEngineInitialized {
+		panic("quickjs engine isn't initialized")
+	}
+
 	DeclareBackgroundTaskStarted()
 
 	m := &Context{}
-	m.ptr = C.quick_createContext(unsafe.Pointer(m))
+	m.ptr = C.quickjs_createContext(unsafe.Pointer(m))
 
 	for i := 0; i < gNextFunctionId; i++ {
 		jsf := gFunctionTable[i]
@@ -108,6 +79,16 @@ func NewContext() *Context {
 	})
 
 	return m
+}
+
+func InitializeEngine() {
+	if gIsEngineInitialized {
+		return
+	}
+	gIsEngineInitialized = true
+
+	C.quickjs_cgoInitialize()
+	C.quickjs_registerDynamicFunctions()
 }
 
 // cleanUpTrackedResources check which track resource can be freed.
@@ -226,15 +207,20 @@ func (m *Context) createErrorMessage(scriptPath string, title string, body strin
 		}
 
 		idx2 := strings.Index(line, "(")
-		frame.Function = line[idx1+3 : idx2-1]
-		frame.Source = scriptPath
 
-		idx1 = strings.LastIndex(line, ":")
-		idx2 = strings.LastIndex(line, ")")
-		line := line[idx1+1 : idx2]
-		frame.Line, _ = strconv.Atoi(line)
+		// Occurs when saturating.
+		//
+		if idx2 != -1 {
+			frame.Function = line[idx1+3 : idx2-1]
+			frame.Source = scriptPath
 
-		res.StackTraceFrames = append(res.StackTraceFrames, frame)
+			idx1 = strings.LastIndex(line, ":")
+			idx2 = strings.LastIndex(line, ")")
+			line := line[idx1+1 : idx2]
+			frame.Line, _ = strconv.Atoi(line)
+
+			res.StackTraceFrames = append(res.StackTraceFrames, frame)
+		}
 	}
 
 	return res
@@ -412,6 +398,39 @@ func WaitTasksEnd() {
 
 //endregion
 
+//region Function registration
+
+type registeredFunction struct {
+	name       *C.char
+	goFunction func(ctx *Context, value []AnyValue)
+
+	paramCount C.int
+	cFunction  *C.JSCFunction
+	isAsync    bool
+}
+
+func RegisterAsyncFunction(jsName string, toCall func(ctx *Context, value []AnyValue)) {
+	auxRegisterFunction(jsName, toCall, true)
+}
+
+func RegisterFunction(jsName string, toCall func(ctx *Context, value []AnyValue)) {
+	auxRegisterFunction(jsName, toCall, false)
+}
+
+func auxRegisterFunction(jsName string, toCall func(ctx *Context, value []AnyValue), isAsync bool) {
+	id := gNextFunctionId
+	gNextFunctionId++
+
+	gFunctionTable[id] = registeredFunction{
+		name:       C.CString(jsName),
+		goFunction: toCall,
+		cFunction:  gCFunctionTable[id],
+		isAsync:    isAsync,
+	}
+}
+
+//endregion
+
 //region AnyValue
 
 type AnyValueType int
@@ -499,8 +518,7 @@ func cgoOnContextReleased(pCtx *C.s_quick_ctx) {
 
 //export cgoOnAutoDisposeResourceReleased
 func cgoOnAutoDisposeResourceReleased(res unsafe.Pointer) {
-	tr := (*trackedResource)(res)
-	tr.dispose()
+	(*trackedResource)(res).dispose()
 }
 
 //endregion

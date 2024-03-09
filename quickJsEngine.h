@@ -73,7 +73,9 @@ void quickjs_setEventOnAutoDisposeResourceReleased(f_quickjs_OnResourceReleased 
 
 //region Context
 
-s_quick_ctx* quick_createContext(void* userData);
+void quickjs_initialize();
+
+s_quick_ctx* quickjs_createContext(void* userData);
 void quickjs_incrContext(s_quick_ctx* pCtx);
 void quickjs_decrContext(s_quick_ctx* pCtx);
 

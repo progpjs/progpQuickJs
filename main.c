@@ -90,11 +90,13 @@ char* readFile(const char* filePath) {
 
 int main(int argc, char **argv)
 {
+    quickjs_initialize();
+
     const char* scriptPath = "index.js";
     char* scriptContent = readFile("index.js");
     if (scriptContent==NULL) return 1;
 
-    s_quick_ctx* pCtx = quick_createContext(NULL);
+    s_quick_ctx* pCtx = quickjs_createContext(NULL);
     quickjs_bindFunction(pCtx, "js_print", 1, js_print);
     quickjs_bindFunction(pCtx, "js_stringToArrayBuffer", 1, js_stringToArrayBuffer);
     quickjs_bindFunction(pCtx, "js_arrayBufferToString", 1, js_arrayBufferToString);
