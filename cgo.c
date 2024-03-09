@@ -1,4 +1,4 @@
-#ifndef PROGP_STANDALONE
+#ifndef QUICKJSENGINE_STANDALONE
 
 #include "quickJsEngine.h"
 #include "_cgo_export.h"
@@ -6,6 +6,7 @@
 void quickjs_cgoInitialize() {
     quickjs_initialize();
     quickjs_setEventOnContextDestroyed(cgoOnContextDestroyed);
+    quickjs_setEventOnAutoDisposeResourceReleased(cgoOnAutoDisposeResourceReleased);
 }
 
 JSValue callDynamicFunctionWith(int fctId, JSContext *ctx, int argc, JSValueConst *argv) {
@@ -1017,4 +1018,4 @@ void quickjs_registerDynamicFunctions() {
     cgoRegisterDynamicFunction(499, jsDynamicFunction499);
 }
 
-#endif //PROGP_STANDALONE
+#endif //QUICKJSENGINE_STANDALONE

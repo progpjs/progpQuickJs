@@ -26,5 +26,5 @@ add_executable(quickJsEngine)
 #
 target_sources(quickJsEngine PRIVATE ${PROJECT_SOURCES_C})
 target_link_libraries(quickJsEngine PRIVATE -lm -ldl -lpthread -lquickjs -L${PROJECT_LIB_DIR})
-target_compile_options(quickJsEngine PRIVATE ${PROJECT_COMPILE_OPTIONS} -DPROGP_STANDALONE)
+target_compile_options(quickJsEngine PRIVATE ${PROJECT_COMPILE_OPTIONS} -DQUICKJSENGINE_STANDALONE)
 target_include_directories(quickJsEngine PRIVATE ${PROJECT_INCLUDE_SEARCH})

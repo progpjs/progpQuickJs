@@ -4,10 +4,9 @@
 
 #include "quickjs-libc.h"
 
-JSRuntime *gRuntime;
-f_quickjs_OnContextDestroyed gEventOnContextDestroyed;
+//region Global
 
-void freeInputParams(JSContext *ctx, s_progp_anyValue* values, int maxCount);
+JSRuntime *gRuntime;
 
 typedef struct s_quickJs_string {
     JSRefCountHeader header; /* must come first, 32-bit */
@@ -28,7 +27,100 @@ typedef struct s_quickJs_string {
     } u;
 } s_quickJs_string;
 
-// *********************************************************************************************************************
+static inline void jsStringToCString(JSContext *ctx, const JSValueConst jsValue, q_quick_anyValue* anyValue) {
+    s_quickJs_string* jsString = jsValue.u.ptr;
+
+    if (jsString->is_wide_char) {
+        const char* cString1 = JS_ToCString(ctx, jsValue);
+        const char* cString2 = strdup(cString1);
+        JS_FreeCString(ctx, cString1);
+        anyValue->voidPtr = (void*)cString2;
+        anyValue->mustFree = 1;
+    } else {
+        anyValue->voidPtr = (void*)jsString->u.str8;
+        anyValue->mustFree = 0;
+    }
+}
+
+//endregion
+
+//region Config
+
+f_quickjs_OnContextDestroyed gEventOnContextDestroyed;
+f_quickjs_OnResourceReleased gEventOnAutoDisposeResourceReleased;
+
+void quickjs_setEventOnAutoDisposeResourceReleased(f_quickjs_OnResourceReleased h) {
+    gEventOnAutoDisposeResourceReleased = h;
+}
+
+void quickjs_setEventOnContextDestroyed(f_quickjs_OnContextDestroyed callback) {
+    gEventOnContextDestroyed = callback;
+}
+
+//endregion
+
+//region Errors
+
+void freeExecException(s_quick_ctx* pCtx) {
+    if (pCtx->hasException) {
+        if (pCtx->execException.errorTitle != NULL) {
+            JS_FreeCString(pCtx->ctx, pCtx->execException.errorTitle);
+            pCtx->execException.errorTitle = NULL;
+        }
+        if (pCtx->execException.errorStackTrace != NULL) {
+            JS_FreeCString(pCtx->ctx, pCtx->execException.errorStackTrace);
+            pCtx->execException.errorStackTrace = NULL;
+        }
+    }
+}
+
+s_quick_error* checkExecException(s_quick_ctx* pCtx, JSValue jsRes) {
+    if (!JS_IsException(jsRes)) {
+        JS_FreeValue(pCtx->ctx, jsRes);
+        return NULL;
+    }
+
+    quickjs_incrContext(pCtx);
+    pCtx->hasException = true;
+
+    JSValue vError = JS_GetException(pCtx->ctx);
+    const char* sErrorTitle = JS_ToCString(pCtx->ctx, vError);
+    if (sErrorTitle) pCtx->execException.errorTitle = sErrorTitle;
+
+    if (JS_IsError(pCtx->ctx, vError)) {
+        JSValue vStack = JS_GetPropertyStr(pCtx->ctx, vError, "stack");
+        const char* sErrorStackTrace = JS_ToCString(pCtx->ctx, vStack);
+        if (sErrorStackTrace) pCtx->execException.errorStackTrace = sErrorStackTrace;
+        JS_FreeValue(pCtx->ctx, vStack);
+    }
+
+    JS_FreeValue(pCtx->ctx, vError);
+    JS_FreeValue(pCtx->ctx, jsRes);
+
+    return &pCtx->execException;
+}
+
+void quickjs_releaseError(s_quick_error* error) {
+    if (error!=NULL) {
+        quickjs_decrContext(error->pCtx);
+    }
+}
+
+//endregion
+
+//region Context
+
+void freeInputParams(JSContext *ctx, q_quick_anyValue* values, int maxCount) {
+    for (int i=0;i<maxCount;i++) {
+        q_quick_anyValue* anyValue = &values[i];
+
+        if (anyValue->mustFree) {
+            if (anyValue->valueType == JS_TAG_STRING) {
+                JS_FreeCString(ctx, anyValue->voidPtr);
+            }
+        }
+    }
+}
 
 static JSContext *customQuickJsContext(JSRuntime *rt)
 {
@@ -50,25 +142,6 @@ static JSContext *customQuickJsContext(JSRuntime *rt)
     return ctx;
 }
 
-void freeExecException(s_quick_ctx* pCtx);
-s_quick_error* checkExecException(s_quick_ctx* pCtx, JSValue jsRes);
-
-void quickjs_exit() {
-    // Free the engine.
-    js_std_free_handlers(gRuntime);
-    JS_FreeRuntime(gRuntime);
-}
-
-void quickjs_initialize() {
-    gRuntime = JS_NewRuntime();
-
-    js_std_set_worker_new_context_func(customQuickJsContext);
-    js_std_init_handlers(gRuntime);
-    JS_SetModuleLoaderFunc(gRuntime, NULL, js_module_loader, NULL);
-
-    gEventOnContextDestroyed = NULL;
-}
-
 s_quick_ctx* quick_createContext(void *userData) {
     JSContext* ctx = customQuickJsContext(gRuntime);
 
@@ -84,7 +157,7 @@ s_quick_ctx* quick_createContext(void *userData) {
     pCtx->hasException = false;
     pCtx->execException.pCtx = pCtx;
     //
-    pCtx->inputAnyValues = calloc(15, sizeof(s_progp_anyValue));
+    pCtx->inputAnyValues = calloc(15, sizeof(q_quick_anyValue));
     pCtx->lastInputParamCount = 0;
 
     // Allows to retrieve value.
@@ -125,12 +198,6 @@ void quickjs_decrContext(s_quick_ctx* pCtx) {
     }
 }
 
-void quickjs_releaseError(s_quick_error* error) {
-    if (error!=NULL) {
-        quickjs_decrContext(error->pCtx);
-    }
-}
-
 s_quick_error* quickjs_executeScript(s_quick_ctx* pCtx, const char* script, const char* origin) {
     quickjs_incrContext(pCtx);
     JSValue jsRes = JS_Eval(pCtx->ctx, script, strlen(script), origin, JS_EVAL_TYPE_GLOBAL);
@@ -139,49 +206,50 @@ s_quick_error* quickjs_executeScript(s_quick_ctx* pCtx, const char* script, cons
     return err;
 }
 
-void freeExecException(s_quick_ctx* pCtx) {
-    if (pCtx->hasException) {
-        if (pCtx->execException.errorTitle != NULL) {
-            JS_FreeCString(pCtx->ctx, pCtx->execException.errorTitle);
-            pCtx->execException.errorTitle = NULL;
-        }
-        if (pCtx->execException.errorStackTrace != NULL) {
-            JS_FreeCString(pCtx->ctx, pCtx->execException.errorStackTrace);
-            pCtx->execException.errorStackTrace = NULL;
-        }
-    }
+//endregion
+
+//region Engine
+
+void quickjs_exit() {
+    // Free the engine.
+    js_std_free_handlers(gRuntime);
+    JS_FreeRuntime(gRuntime);
 }
 
-s_quick_error* checkExecException(s_quick_ctx* pCtx, JSValue jsRes) {
-    if (!JS_IsException(jsRes)) {
-        JS_FreeValue(pCtx->ctx, jsRes);
-        return NULL;
-    }
+void quickjs_initialize() {
+    gRuntime = JS_NewRuntime();
 
-    quickjs_incrContext(pCtx);
+    js_std_set_worker_new_context_func(customQuickJsContext);
+    js_std_init_handlers(gRuntime);
+    JS_SetModuleLoaderFunc(gRuntime, NULL, js_module_loader, NULL);
 
-    if (pCtx->hasException) {
-        freeExecException(pCtx);
-    } else {
-        pCtx->hasException = true;
-    }
-
-    JSValue vError = JS_GetException(pCtx->ctx);
-    const char* sErrorTitle = JS_ToCString(pCtx->ctx, vError);
-    if (sErrorTitle) pCtx->execException.errorTitle = sErrorTitle;
-
-    if (JS_IsError(pCtx->ctx, vError)) {
-        JSValue vStack = JS_GetPropertyStr(pCtx->ctx, vError, "stack");
-        const char* sErrorStackTrace = JS_ToCString(pCtx->ctx, vStack);
-        if (sErrorStackTrace) pCtx->execException.errorStackTrace = sErrorStackTrace;
-        JS_FreeValue(pCtx->ctx, vStack);
-    }
-
-    JS_FreeValue(pCtx->ctx, vError);
-    JS_FreeValue(pCtx->ctx, jsRes);
-
-    return &pCtx->execException;
+    gEventOnContextDestroyed = NULL;
+    gEventOnAutoDisposeResourceReleased = NULL;
 }
+
+//endregion
+
+//region Calling functions
+
+s_quick_error* quickjs_callFunctionWithUndefined(s_quick_ctx* pCtx, JSValue* host, int keepAlive) {
+    JSValue jsRes = JS_Call(pCtx->ctx, *host, JS_UNDEFINED, 0, NULL);
+    if (!keepAlive) quickjs_releaseFunction(pCtx, host);
+    return checkExecException(pCtx, jsRes);
+}
+
+s_quick_error* quickjs_callFunctionWithAutoReleaseResource2(s_quick_ctx* pCtx, JSValue* host, int keepAlive, uintptr_t res) {
+    JSValue args[2];
+    args[0] = JS_UNDEFINED;
+    args[1] = quickjs_newAutoReleaseResource(pCtx, (void*)res);
+
+    JSValue jsRes = JS_Call(pCtx->ctx, *host, JS_UNDEFINED, 2, args);
+    if (!keepAlive) quickjs_releaseFunction(pCtx, host);
+
+    JS_FreeValue(pCtx->ctx, args[1]);
+    return checkExecException(pCtx, jsRes);
+}
+
+//endregion
 
 void quickjs_bindFunction(s_quick_ctx* pCtx, const char* functionName, int minArgCount, JSCFunction fct) {
     JSValue ctxGlobal = JS_GetGlobalObject(pCtx->ctx);
@@ -189,36 +257,9 @@ void quickjs_bindFunction(s_quick_ctx* pCtx, const char* functionName, int minAr
     JS_FreeValue(pCtx->ctx, ctxGlobal);
 }
 
-static inline void jsStringToCString(JSContext *ctx, const JSValueConst jsValue, s_progp_anyValue* anyValue) {
-    s_quickJs_string* jsString = jsValue.u.ptr;
-
-    if (jsString->is_wide_char) {
-        const char* cString1 = JS_ToCString(ctx, jsValue);
-        const char* cString2 = strdup(cString1);
-        JS_FreeCString(ctx, cString1);
-        anyValue->voidPtr = (void*)cString2;
-        anyValue->mustFree = 1;
-    } else {
-        anyValue->voidPtr = (void*)jsString->u.str8;
-        anyValue->mustFree = 0;
-    }
-}
-
-void freeInputParams(JSContext *ctx, s_progp_anyValue* values, int maxCount) {
-    for (int i=0;i<maxCount;i++) {
-        s_progp_anyValue* anyValue = &values[i];
-
-        if (anyValue->mustFree) {
-            if (anyValue->valueType == JS_TAG_STRING) {
-                JS_FreeCString(ctx, anyValue->voidPtr);
-            }
-        }
-    }
-}
-
 s_quick_ctx* quickjs_callParamsToAnyValue(JSContext *ctx, int argc, JSValueConst *argv) {
     s_quick_ctx* pCtx = (s_quick_ctx*)JS_GetContextOpaque(ctx);
-    s_progp_anyValue* values = pCtx->inputAnyValues;
+    q_quick_anyValue* values = pCtx->inputAnyValues;
 
     if (pCtx->lastInputParamCount!=0) {
         freeInputParams(ctx, pCtx->inputAnyValues, pCtx->lastInputParamCount);
@@ -230,7 +271,7 @@ s_quick_ctx* quickjs_callParamsToAnyValue(JSContext *ctx, int argc, JSValueConst
 
     for (int i=0;i<argc;i++) {
         JSValueConst jsValue = argv[i];
-        s_progp_anyValue* anyValue = &values[i];
+        q_quick_anyValue* anyValue = &values[i];
 
         tag = jsValue.tag;
 
@@ -313,12 +354,15 @@ void quickjs_releaseFunction(s_quick_ctx* pCtx, JSValue* host) {
     free(host);
 }
 
-void quickjs_setEventOnContextDestroyed(f_quickjs_OnContextDestroyed callback) {
-    gEventOnContextDestroyed = callback;
+static void onGcAutoReleaseResource(JSRuntime *rt, void *opaque, void *buffer) {
+    if (gEventOnAutoDisposeResourceReleased!=NULL) {
+        DEBUG_PRINT("Releasing auto resource");
+        gEventOnAutoDisposeResourceReleased(opaque);
+    } else {
+        DEBUG_PRINT("Releasing auto resource - no handler found");
+    }
 }
 
-s_quick_error* quickjs_callFunctionWithUndefined(s_quick_ctx* pCtx, JSValue* host, int keepAlive) {
-    JSValue jsRes = JS_Call(pCtx->ctx, *host, JS_UNDEFINED, 0, NULL);
-    if (!keepAlive) quickjs_releaseFunction(pCtx, host);
-    return checkExecException(pCtx, jsRes);
+JSValue quickjs_newAutoReleaseResource(s_quick_ctx* pCtx, void* value) {
+    return JS_NewArrayBuffer(pCtx->ctx, NULL, 0, onGcAutoReleaseResource, value, false);
 }

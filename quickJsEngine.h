@@ -8,10 +8,8 @@
 // https://bellard.org/quickjs/quickjs.html
 // https://blogs.igalia.com/compilers/2023/06/12/quickjs-an-overview-and-guide-to-adding-a-new-feature/
 
-#define PROGP_PRINT(m) printf("%s\n", m)
-#define PROGP_PRINT_KeepLine(m) printf("%s", m)
-#define PROGP_DEBUG(m) std::cout << "[C-PROGP_DEBUG] - " << m << std::endl
-#define PROGP_LOG_ERROR(FROM, WHAT) std::cout << "ERROR - " << FROM << " - " << WHAT << std::endl
+#define DEBUG_PRINT(m) printf("C-DEBUG - %s\n", m)
+#define DEBUG_PRINT_KeepLine(m) printf("C-DEBUG - %s", m)
 
 #define AnyValueTypeUndefined   0
 #define AnyValueTypeNull        1
@@ -24,7 +22,7 @@
 #define AnyValueTypeJson        8
 #define AnyValueTypeInt32       9
 
-typedef struct s_progp_anyValue {
+typedef struct q_quick_anyValue {
     int valueType;
     double number;
     void* voidPtr;
@@ -40,7 +38,7 @@ typedef struct s_progp_anyValue {
     // Allows knowing if the value voidPtr must be free.
     //
     int mustFree;
-} s_progp_anyValue;
+} q_quick_anyValue;
 
 typedef struct s_quick_ctx s_quick_ctx;
 
@@ -56,28 +54,54 @@ typedef struct s_quick_ctx {
     void* userData;
     bool hasException;
     s_quick_error execException;
-    s_progp_anyValue* inputAnyValues;
+    q_quick_anyValue* inputAnyValues;
     int lastInputParamCount;
 } s_quick_ctx;
 
-void quickjs_initialize();
-void quickjs_exit();
+typedef void (*f_quickjs_OnContextDestroyed)(s_quick_ctx* ctx);
+typedef void (*f_quickjs_OnResourceReleased)(void* resource);
+
+//region Config
+
+void quickjs_setEventOnContextDestroyed(f_quickjs_OnContextDestroyed callback);
+void quickjs_setEventOnAutoDisposeResourceReleased(f_quickjs_OnResourceReleased h);
+
+//endregion
+
+//region Context
 
 s_quick_ctx* quick_createContext(void* userData);
 void quickjs_incrContext(s_quick_ctx* pCtx);
 void quickjs_decrContext(s_quick_ctx* pCtx);
 
-void quickjs_releaseError(s_quick_error* error);
-
-void quickjs_releaseFunction(s_quick_ctx* pCtx, JSValue* host);
 s_quick_error* quickjs_executeScript(s_quick_ctx* pCtx, const char* script, const char* origin);
 void quickjs_bindFunction(s_quick_ctx* pCtx, const char* functionName, int minArgCount, JSCFunction fct);
 
-s_quick_ctx* quickjs_callParamsToAnyValue(JSContext *ctx, int argc, JSValueConst *argv);
+//endregion
 
-typedef void (*f_quickjs_OnContextDestroyed)(s_quick_ctx* ctx);
-void quickjs_setEventOnContextDestroyed(f_quickjs_OnContextDestroyed callback);
+//region Engine
+
+void quickjs_initialize();
+void quickjs_exit();
+
+//endregion
+
+//region Release ref
+
+void quickjs_releaseError(s_quick_error* error);
+void quickjs_releaseFunction(s_quick_ctx* pCtx, JSValue* host);
+
+//endregion
+
+//region Calling functions
 
 s_quick_error* quickjs_callFunctionWithUndefined(s_quick_ctx* pCtx, JSValue* host, int keepAlive);
+s_quick_error* quickjs_callFunctionWithAutoReleaseResource2(s_quick_ctx* pCtx, JSValue* host, int keepAlive, uintptr_t res);
+
+//endregion
+
+s_quick_ctx* quickjs_callParamsToAnyValue(JSContext *ctx, int argc, JSValueConst *argv);
+
+JSValue quickjs_newAutoReleaseResource(s_quick_ctx* pCtx, void* value);
 
 #endif // QUICKJS_ENGINE_CPP

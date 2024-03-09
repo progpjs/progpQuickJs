@@ -4,7 +4,7 @@
 
 #include "quickJsEngine.h"
 
-#ifdef PROGP_STANDALONE
+#ifdef QUICKJSENGINE_STANDALONE
 
 //region Sample functions
 
@@ -20,7 +20,7 @@ static JSValue js_print(JSContext *ctx, JSValueConst this_val, int argc, JSValue
     for (i = 0; i < argc; i++) {
         str = JS_ToCString(ctx, argv[i]);
         if (!str) return JS_EXCEPTION;
-        PROGP_PRINT(str);
+        DEBUG_PRINT(str);
         JS_FreeCString(ctx, str);
     }
 
@@ -54,24 +54,7 @@ static JSValue js_receiveFunction(JSContext *ctx, JSValueConst this_val, int arg
     return JS_UNDEFINED;
 }
 
-typedef struct QuickJString {
-    JSRefCountHeader header;
-    uint32_t len : 31;
-    uint8_t is_wide_char : 1; /* 0 = 8 bits, 1 = 16 bits characters */
-    uint32_t hash : 30;
-    uint8_t atom_type : 2;
-    uint32_t hash_next;
-#ifdef DUMP_LEAKS
-    struct list_head link; /* string list */
-#endif
-    union {
-        uint8_t str8[0]; /* 8 bit strings will get an extra null terminator */
-        uint16_t str16[0];
-    } u;
-} QuickJString;
-
-static JSValue js_decodeParams(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv) {
-    quickjs_callParamsToAnyValue(ctx, argc, argv);
+static JSValue js_test(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv) {
     return JS_UNDEFINED;
 }
 
@@ -118,14 +101,14 @@ int main(int argc, char **argv)
     quickjs_bindFunction(pCtx, "js_stringToArrayBuffer", 1, js_stringToArrayBuffer);
     quickjs_bindFunction(pCtx, "js_arrayBufferToString", 1, js_arrayBufferToString);
     quickjs_bindFunction(pCtx, "js_receiveFunction", 1, js_receiveFunction);
-    quickjs_bindFunction(pCtx, "js_decodeParams", 1, js_decodeParams);
+    quickjs_bindFunction(pCtx, "js_test", 1, js_test);
 
     s_quick_error* err = quickjs_executeScript(pCtx, scriptContent, scriptPath);
 
     if (err!=NULL) {
-        PROGP_PRINT("ERROR: ");
-        PROGP_PRINT_KeepLine(err->errorTitle);
-        PROGP_PRINT_KeepLine(err->errorStackTrace);
+        DEBUG_PRINT("ERROR: ");
+        DEBUG_PRINT_KeepLine(err->errorTitle);
+        DEBUG_PRINT_KeepLine(err->errorStackTrace);
     }
 
     quickjs_exit();
@@ -134,4 +117,4 @@ int main(int argc, char **argv)
     return 0;
 }
 
-#endif // PROGP_STANDALONE
+#endif // QUICKJSENGINE_STANDALONE

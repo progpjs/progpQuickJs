@@ -1,6 +1,9 @@
 package jsQuickJs
 
-import "fmt"
+import (
+	"fmt"
+	"runtime"
+)
 
 var gFatalErrorHandler func(err any)
 
@@ -23,4 +26,24 @@ func CatchFatalErrors() {
 
 func SetFatalErrorHandler(handler func(err any)) {
 	gFatalErrorHandler = handler
+}
+
+type Disposable interface {
+	Dispose()
+}
+
+type sOnGcCall struct {
+	f func() bool
+}
+
+func (m *sOnGcCall) finalizer() {
+	if m.f() {
+		runOnGcCall(m.f)
+	}
+}
+
+func runOnGcCall(f func() bool) any {
+	e := &sOnGcCall{f}
+	runtime.SetFinalizer(e, (*sOnGcCall).finalizer)
+	return e
 }

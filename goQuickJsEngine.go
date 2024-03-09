@@ -73,6 +73,8 @@ type Context struct {
 
 	refCount      int
 	refCountMutex sync.Mutex
+
+	trackedResourceTail *trackedResource
 }
 
 type ErrorHandler func(*Context, *JsErrorMessage) bool
@@ -90,7 +92,42 @@ func NewContext() *Context {
 
 	m.taskQueue = newTaskQueue()
 
+	runOnGcCall(func() bool {
+		if m.taskQueue.disposed {
+			return false
+		}
+
+		// Allows to be thread safe without using mutex on add/remove mutex.
+		m.taskQueue.Push(func() {
+			if m.trackedResourceTail != nil {
+				m.cleanUpTrackedResources(false)
+			}
+		})
+
+		return true
+	})
+
 	return m
+}
+
+// cleanUpTrackedResources check which track resource can be freed.
+// It's called when the GC execute or when the context is destroyed.
+// Using this strategy allows
+func (m *Context) cleanUpTrackedResources(forceDispose bool) {
+	tail := m.trackedResourceTail
+
+	for {
+		if tail == nil {
+			return
+		}
+
+		if tail.isDisposed {
+			tail.detach(m)
+		} else if forceDispose {
+			tail.dispose()
+			tail.detach(m)
+		}
+	}
 }
 
 func (m *Context) SetErrorHandler(h ErrorHandler) {
@@ -139,10 +176,16 @@ func (m *Context) decrRef() {
 
 	m.refCount--
 	if m.refCount == 0 {
-		C.quickjs_decrContext(m.ptr)
+		m.dispose()
 	}
 
 	m.refCountMutex.Unlock()
+}
+
+func (m *Context) dispose() {
+	C.quickjs_decrContext(m.ptr)
+	m.cleanUpTrackedResources(true)
+	m.trackedResourceTail = nil
 }
 
 func (m *Context) ExecuteScript(script string, scriptOrigin string) *JsErrorMessage {
@@ -190,7 +233,7 @@ func (m *Context) createErrorMessage(scriptPath string, title string, body strin
 
 func (m *Context) processError(jsErr *C.s_quick_error) {
 	m.jsError = m.createErrorMessage(m.scriptOrigin, C.GoString(jsErr.errorTitle), C.GoString(jsErr.errorStackTrace))
-	C.quickjs_releaseError(jsErr)
+	defer C.quickjs_releaseError(jsErr)
 
 	if m.errorHandler != nil {
 		canContinue := m.errorHandler(m, m.jsError)
@@ -204,12 +247,25 @@ func (m *Context) processError(jsErr *C.s_quick_error) {
 	m.taskQueue.Dispose()
 }
 
+// trackResource will add a resource to the tracker.
+// Warning: must be called from the task queue in order to be thread safe.
+func (m *Context) trackResource(res any) C.uintptr_t {
+	tr := &trackedResource{value: res}
+	tr.before = m.trackedResourceTail
+	if tr.before != nil {
+		tr.before.next = tr
+	}
+
+	m.trackedResourceTail = tr
+	return (C.uintptr_t)(uintptr(unsafe.Pointer(tr)))
+}
+
 //endregion
 
 //region JsFunction
 
 type JsFunction struct {
-	ptr               unsafe.Pointer
+	ptr               *C.JSValue
 	ctx               *Context
 	comeFromAsyncCall bool
 	keepAlive         C.int
@@ -223,21 +279,44 @@ func (m *JsFunction) Dispose() {
 }
 
 func (m *JsFunction) CallWithUndefined() {
-	if m.ptr != nil {
-		m.ctx.taskQueue.Push(func() {
-			err := C.quickjs_callFunctionWithUndefined(m.ctx.ptr, (*C.JSValue)(m.ptr), m.keepAlive)
-			m.ptr = nil
-
-			if m.comeFromAsyncCall {
-				m.comeFromAsyncCall = false
-				m.ctx.decrRef()
-			}
-
-			if err != nil {
-				m.ctx.processError(err)
-			}
-		})
+	if m.ptr == nil {
+		return
 	}
+
+	m.ctx.taskQueue.Push(func() {
+		err := C.quickjs_callFunctionWithUndefined(m.ctx.ptr, m.ptr, m.keepAlive)
+		m.ptr = nil
+
+		if m.comeFromAsyncCall {
+			m.comeFromAsyncCall = false
+			m.ctx.decrRef()
+		}
+
+		if err != nil {
+			m.ctx.processError(err)
+		}
+	})
+}
+
+func (m *JsFunction) CallWithAutoReleaseResource2(res any) {
+	if m.ptr == nil {
+		return
+	}
+
+	m.ctx.taskQueue.Push(func() {
+		trResource := m.ctx.trackResource(res)
+		err := C.quickjs_callFunctionWithAutoReleaseResource2(m.ctx.ptr, m.ptr, m.keepAlive, trResource)
+		m.ptr = nil
+
+		if m.comeFromAsyncCall {
+			m.comeFromAsyncCall = false
+			m.ctx.decrRef()
+		}
+
+		if err != nil {
+			m.ctx.processError(err)
+		}
+	})
 }
 
 func (m *JsFunction) KeepAlive() {
@@ -246,6 +325,43 @@ func (m *JsFunction) KeepAlive() {
 			m.keepAlive = cInt1
 			runtime.SetFinalizer(m, (*JsFunction).Dispose)
 		}
+	}
+}
+
+//endregion
+
+//region Tracked Resources
+
+type trackedResource struct {
+	value      any
+	isDisposed bool
+	before     *trackedResource
+	next       *trackedResource
+	isDetached bool
+}
+
+func (m *trackedResource) detach(ctx *Context) {
+	if m.isDetached {
+		return
+	}
+	m.isDetached = true
+
+	if m.next != nil {
+		m.next.before = m.before
+	} else if ctx.trackedResourceTail == m {
+		ctx.trackedResourceTail = m.before
+	}
+
+	if m.before != nil {
+		m.before.next = m.next
+	}
+}
+
+func (m *trackedResource) dispose() {
+	m.isDisposed = true
+
+	if d, ok := m.value.(Disposable); ok {
+		d.Dispose()
 	}
 }
 
@@ -351,11 +467,11 @@ func cgoCallDynamicFunction(functionId C.int, pCtx *C.s_quick_ctx, argc C.int) C
 			v := AnyValue{Type: cValueType, Value: C.GoBytes(cAnyValue.voidPtr, (C.int)(cAnyValue.size))}
 			allAnyValues = append(allAnyValues, v)
 		} else if cValueType == cAnyValueTypeFunction {
-			v := AnyValue{Type: cValueType, Value: &JsFunction{ctx: goCtx, comeFromAsyncCall: jsf.isAsync, ptr: unsafe.Pointer(cAnyValue.voidPtr)}}
+			v := AnyValue{Type: cValueType, Value: &JsFunction{ctx: goCtx, comeFromAsyncCall: jsf.isAsync, ptr: (*C.JSValue)(cAnyValue.voidPtr)}}
 			allAnyValues = append(allAnyValues, v)
 		}
 
-		cAnyValue = (*C.s_progp_anyValue)(unsafe.Add(unsafe.Pointer(cAnyValue), C.sizeof_s_progp_anyValue))
+		cAnyValue = (*C.q_quick_anyValue)(unsafe.Add(unsafe.Pointer(cAnyValue), C.sizeof_q_quick_anyValue))
 	}
 
 	if jsf.isAsync {
@@ -370,6 +486,12 @@ func cgoCallDynamicFunction(functionId C.int, pCtx *C.s_quick_ctx, argc C.int) C
 func cgoOnContextDestroyed(pCtx *C.s_quick_ctx) {
 	goCtx := (*Context)(unsafe.Pointer(pCtx.userData))
 	goCtx.onCppDisposed()
+}
+
+//export cgoOnAutoDisposeResourceReleased
+func cgoOnAutoDisposeResourceReleased(res unsafe.Pointer) {
+	tr := (*trackedResource)(res)
+	tr.dispose()
 }
 
 //endregion
