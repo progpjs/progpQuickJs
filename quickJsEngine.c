@@ -27,6 +27,11 @@ typedef struct s_quickJs_string {
     } u;
 } s_quickJs_string;
 
+// Allows to check the ref count of an object when debugging.
+typedef struct s_quickJs_withRefCount {
+    int ref_count;
+} s_quickJs_withRefCount;
+
 static inline void jsStringToCString(JSContext *ctx, const JSValueConst jsValue, q_quick_anyValue* anyValue) {
     s_quickJs_string* jsString = jsValue.u.ptr;
 
@@ -46,15 +51,15 @@ static inline void jsStringToCString(JSContext *ctx, const JSValueConst jsValue,
 
 //region Config
 
-f_quickjs_OnContextDestroyed gEventOnContextDestroyed;
+f_quickjs_OnContextDestroyed gEventOnContextReleased;
 f_quickjs_OnResourceReleased gEventOnAutoDisposeResourceReleased;
 
 void quickjs_setEventOnAutoDisposeResourceReleased(f_quickjs_OnResourceReleased h) {
     gEventOnAutoDisposeResourceReleased = h;
 }
 
-void quickjs_setEventOnContextDestroyed(f_quickjs_OnContextDestroyed callback) {
-    gEventOnContextDestroyed = callback;
+void quickjs_setEventOnContextReleased(f_quickjs_OnContextDestroyed callback) {
+    gEventOnContextReleased = callback;
 }
 
 //endregion
@@ -177,25 +182,50 @@ void quickjs_incrContext(s_quick_ctx* pCtx) {
 
 void quickjs_decrContext(s_quick_ctx* pCtx) {
     pCtx->refCount--;
+    if (pCtx->refCount!=0) return;
 
-    if (pCtx->refCount==0) {
-        if (gEventOnContextDestroyed!=NULL) {
-            gEventOnContextDestroyed(pCtx);
-            if (pCtx->refCount!=0) return;
-        }
-
-        if (pCtx->hasException) {
-            freeExecException(pCtx);
-        }
-
-        if (pCtx->lastInputParamCount!=0) {
-            freeInputParams(pCtx->ctx, pCtx->inputAnyValues, pCtx->lastInputParamCount);
-        }
-
-        JS_FreeContext(pCtx->ctx);
-
-        free(pCtx);
+    if (gEventOnContextReleased!=NULL) {
+        gEventOnContextReleased(pCtx);
+        if (pCtx->refCount!=0) return;
     }
+}
+
+// JS_FreeContext don't do anything (ref count bug?)
+// It's why we don't delete the context anymore.
+//
+void quickjs_decrContext__old(s_quick_ctx* pCtx) {
+    pCtx->refCount--;
+    if (pCtx->refCount!=0) return;
+
+
+    if (pCtx->hasException) {
+        freeExecException(pCtx);
+        pCtx->hasException = false;
+    }
+
+    if (pCtx->lastInputParamCount!=0) {
+        freeInputParams(pCtx->ctx, pCtx->inputAnyValues, pCtx->lastInputParamCount);
+    }
+
+    /*s_quickJs_withRefCount* wrf = (s_quickJs_withRefCount*)pCtx->ctx;
+    printf("quickjs_decrContext - %d\n", wrf->ref_count);
+    JS_RunGC(gRuntime);
+    printf("quickjs_decrContext - %d\n", wrf->ref_count);*/
+
+    // Warning: the function exit immediatly without releasing anything.
+    //      It's seem to be du to "if (--ctx->header.ref_count > 0) return;".
+    //      Here the counter is never 0. Seem to be du to "customQuickJsContext".
+    //      but even without that the count is at least 5.
+    //
+    // Disabled since it not ok.
+    // JS_FreeContext(pCtx->ctx);
+
+    if (gEventOnContextReleased!=NULL) {
+        gEventOnContextReleased(pCtx);
+        if (pCtx->refCount!=0) return;
+    }
+
+    //free(pCtx);
 }
 
 s_quick_error* quickjs_executeScript(s_quick_ctx* pCtx, const char* script, const char* origin) {
@@ -223,7 +253,7 @@ void quickjs_initialize() {
     js_std_init_handlers(gRuntime);
     JS_SetModuleLoaderFunc(gRuntime, NULL, js_module_loader, NULL);
 
-    gEventOnContextDestroyed = NULL;
+    gEventOnContextReleased = NULL;
     gEventOnAutoDisposeResourceReleased = NULL;
 }
 

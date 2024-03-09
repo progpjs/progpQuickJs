@@ -1,0 +1,3 @@
+* Debugger for QuickJS
+    https://github.com/koush/vscode-quickjs-debug
+    https://github.com/koush/quickjs/blob/master/quickjs-debugger.c

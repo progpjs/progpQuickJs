@@ -5,7 +5,7 @@
 
 void quickjs_cgoInitialize() {
     quickjs_initialize();
-    quickjs_setEventOnContextDestroyed(cgoOnContextDestroyed);
+    quickjs_setEventOnContextReleased(cgoOnContextReleased);
     quickjs_setEventOnAutoDisposeResourceReleased(cgoOnAutoDisposeResourceReleased);
 }
 

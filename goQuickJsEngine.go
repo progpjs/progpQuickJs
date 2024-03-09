@@ -136,6 +136,12 @@ func (m *Context) SetErrorHandler(h ErrorHandler) {
 
 func (m *Context) Dispose() {
 	if m.isKeepAlive {
+		// Warning: The C object is never  free du to a possible bug or something I don't understand.
+		//			It's why memory is bleeding when creating/disposing a lot of contexts.
+		//
+		// Here the call is required since it will release some resources.
+		// But it don't destroy the context himself.
+
 		C.quickjs_decrContext(m.ptr)
 		m.isKeepAlive = false
 	}
@@ -482,8 +488,8 @@ func cgoCallDynamicFunction(functionId C.int, pCtx *C.s_quick_ctx, argc C.int) C
 	return C.JS_UNDEFINED
 }
 
-//export cgoOnContextDestroyed
-func cgoOnContextDestroyed(pCtx *C.s_quick_ctx) {
+//export cgoOnContextReleased
+func cgoOnContextReleased(pCtx *C.s_quick_ctx) {
 	goCtx := (*Context)(unsafe.Pointer(pCtx.userData))
 	goCtx.onCppDisposed()
 }

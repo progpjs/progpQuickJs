@@ -63,7 +63,7 @@ typedef void (*f_quickjs_OnResourceReleased)(void* resource);
 
 //region Config
 
-void quickjs_setEventOnContextDestroyed(f_quickjs_OnContextDestroyed callback);
+void quickjs_setEventOnContextReleased(f_quickjs_OnContextDestroyed callback);
 void quickjs_setEventOnAutoDisposeResourceReleased(f_quickjs_OnResourceReleased h);
 
 //endregion
