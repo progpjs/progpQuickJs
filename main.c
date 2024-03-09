@@ -120,12 +120,12 @@ int main(int argc, char **argv)
     quickjs_bindFunction(pCtx, "js_receiveFunction", 1, js_receiveFunction);
     quickjs_bindFunction(pCtx, "js_decodeParams", 1, js_decodeParams);
 
-    s_quick_execResult res = quickjs_executeScript(pCtx, scriptContent, scriptPath);
+    s_quick_error* err = quickjs_executeScript(pCtx, scriptContent, scriptPath);
 
-    if (res.isException) {
+    if (err!=NULL) {
         PROGP_PRINT("ERROR: ");
-        PROGP_PRINT_KeepLine(res.errorTitle);
-        PROGP_PRINT_KeepLine(res.errorStackTrace);
+        PROGP_PRINT_KeepLine(err->errorTitle);
+        PROGP_PRINT_KeepLine(err->errorStackTrace);
     }
 
     quickjs_exit();

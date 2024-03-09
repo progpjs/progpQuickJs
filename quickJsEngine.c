@@ -50,7 +50,8 @@ static JSContext *customQuickJsContext(JSRuntime *rt)
     return ctx;
 }
 
-void quickjs_freeExecResult(s_quick_execResult res);
+void freeExecException(s_quick_ctx* pCtx);
+s_quick_error* checkExecException(s_quick_ctx* pCtx, JSValue jsRes);
 
 void quickjs_exit() {
     // Free the engine.
@@ -80,10 +81,11 @@ s_quick_ctx* quick_createContext(void *userData) {
     s_quick_ctx* pCtx = malloc(sizeof(s_quick_ctx));
     pCtx->ctx = ctx;
     pCtx->userData = userData;
-    pCtx->hasResult = false;
+    pCtx->hasException = false;
+    pCtx->execException.pCtx = pCtx;
+    //
     pCtx->inputAnyValues = calloc(15, sizeof(s_progp_anyValue));
     pCtx->lastInputParamCount = 0;
-
 
     // Allows to retrieve value.
     JS_SetContextOpaque(ctx, pCtx);
@@ -94,9 +96,9 @@ s_quick_ctx* quick_createContext(void *userData) {
 void quickjs_incrContext(s_quick_ctx* pCtx) {
     pCtx->refCount++;
 
-    if (pCtx->hasResult) {
-        quickjs_freeExecResult(pCtx->result);
-        pCtx->hasResult = false;
+    if (pCtx->hasException) {
+        freeExecException(pCtx);
+        pCtx->hasException = false;
     }
 }
 
@@ -109,8 +111,8 @@ void quickjs_decrContext(s_quick_ctx* pCtx) {
             if (pCtx->refCount!=0) return;
         }
 
-        if (pCtx->hasResult) {
-            quickjs_freeExecResult(pCtx->result);
+        if (pCtx->hasException) {
+            freeExecException(pCtx);
         }
 
         if (pCtx->lastInputParamCount!=0) {
@@ -123,60 +125,68 @@ void quickjs_decrContext(s_quick_ctx* pCtx) {
     }
 }
 
-s_quick_execResult quickjs_executeScript(s_quick_ctx* pCtx, const char* script, const char* origin) {
-    quickjs_incrContext(pCtx);
-
-    s_quick_execResult res;
-    res.result = JS_Eval(pCtx->ctx, script, strlen(script), origin, JS_EVAL_TYPE_GLOBAL);
-    res.pCtx = pCtx;
-    res.errorTitle = NULL;
-
-    if (JS_IsException(res.result)) {
-        res.isException = true;
-
-        JSValue exception_val = JS_GetException(pCtx->ctx);
-        bool is_error = JS_IsError(pCtx->ctx, exception_val);
-
-        const char* sErrorTitle = JS_ToCString(pCtx->ctx, exception_val);
-        if (sErrorTitle) res.errorTitle = sErrorTitle;
-
-        if (is_error) {
-            JSValue val = JS_GetPropertyStr(pCtx->ctx, exception_val, "stack");
-            const char* sErrorStackTrace = JS_ToCString(pCtx->ctx, val);
-            if (sErrorStackTrace) res.errorStackTrace = sErrorStackTrace;
-            JS_FreeValue(pCtx->ctx, val);
-        }
-
-        JS_FreeValue(pCtx->ctx, exception_val);
+void quickjs_releaseError(s_quick_error* error) {
+    if (error!=NULL) {
+        quickjs_decrContext(error->pCtx);
     }
-    else {
-        res.isException = false;
-    }
-
-    pCtx->hasResult = true;
-    pCtx->result = res;
-
-    quickjs_decrContext(pCtx);
-    return res;
 }
 
-void quickjs_freeExecResult(s_quick_execResult res) {
-    if (res.isException) {
-        if (res.errorTitle != NULL) JS_FreeCString(res.pCtx->ctx, res.errorTitle);
-        if (res.errorStackTrace != NULL) JS_FreeCString(res.pCtx->ctx, res.errorStackTrace);
+s_quick_error* quickjs_executeScript(s_quick_ctx* pCtx, const char* script, const char* origin) {
+    quickjs_incrContext(pCtx);
+    JSValue jsRes = JS_Eval(pCtx->ctx, script, strlen(script), origin, JS_EVAL_TYPE_GLOBAL);
+    s_quick_error* err = checkExecException(pCtx, jsRes);
+    quickjs_decrContext(pCtx);
+    return err;
+}
+
+void freeExecException(s_quick_ctx* pCtx) {
+    if (pCtx->hasException) {
+        if (pCtx->execException.errorTitle != NULL) {
+            JS_FreeCString(pCtx->ctx, pCtx->execException.errorTitle);
+            pCtx->execException.errorTitle = NULL;
+        }
+        if (pCtx->execException.errorStackTrace != NULL) {
+            JS_FreeCString(pCtx->ctx, pCtx->execException.errorStackTrace);
+            pCtx->execException.errorStackTrace = NULL;
+        }
+    }
+}
+
+s_quick_error* checkExecException(s_quick_ctx* pCtx, JSValue jsRes) {
+    if (!JS_IsException(jsRes)) {
+        JS_FreeValue(pCtx->ctx, jsRes);
+        return NULL;
     }
 
-    JS_FreeValue(res.pCtx->ctx, res.result);
+    quickjs_incrContext(pCtx);
+
+    if (pCtx->hasException) {
+        freeExecException(pCtx);
+    } else {
+        pCtx->hasException = true;
+    }
+
+    JSValue vError = JS_GetException(pCtx->ctx);
+    const char* sErrorTitle = JS_ToCString(pCtx->ctx, vError);
+    if (sErrorTitle) pCtx->execException.errorTitle = sErrorTitle;
+
+    if (JS_IsError(pCtx->ctx, vError)) {
+        JSValue vStack = JS_GetPropertyStr(pCtx->ctx, vError, "stack");
+        const char* sErrorStackTrace = JS_ToCString(pCtx->ctx, vStack);
+        if (sErrorStackTrace) pCtx->execException.errorStackTrace = sErrorStackTrace;
+        JS_FreeValue(pCtx->ctx, vStack);
+    }
+
+    JS_FreeValue(pCtx->ctx, vError);
+    JS_FreeValue(pCtx->ctx, jsRes);
+
+    return &pCtx->execException;
 }
 
 void quickjs_bindFunction(s_quick_ctx* pCtx, const char* functionName, int minArgCount, JSCFunction fct) {
     JSValue ctxGlobal = JS_GetGlobalObject(pCtx->ctx);
     JS_SetPropertyStr(pCtx->ctx, ctxGlobal, functionName, JS_NewCFunction(pCtx->ctx, fct, functionName, minArgCount));
     JS_FreeValue(pCtx->ctx, ctxGlobal);
-}
-
-int quickjs_enqueueJob(s_quick_ctx* pCtx, JSJobFunc *job_func, int argc, JSValueConst *argv) {
-    return JS_EnqueueJob(pCtx->ctx, job_func, argc, argv);
 }
 
 static inline void jsStringToCString(JSContext *ctx, const JSValueConst jsValue, s_progp_anyValue* anyValue) {
@@ -299,17 +309,16 @@ s_quick_ctx* quickjs_callParamsToAnyValue(JSContext *ctx, int argc, JSValueConst
 }
 
 void quickjs_releaseFunction(s_quick_ctx* pCtx, JSValue* host) {
-    PROGP_PRINT("quickjs_releaseFunction / d1");
     JS_FreeValue(pCtx->ctx, *host);
     free(host);
 }
 
-void quickjs_callFunction(s_quick_ctx* pCtx, JSValue* host, int keepAlive) {
-    JSValue res = JS_Call(pCtx->ctx, *host, JS_UNDEFINED, 0, NULL);
-    JS_FreeValue(pCtx->ctx, res);
-    if (!keepAlive) quickjs_releaseFunction(pCtx, host);
-}
-
 void quickjs_setEventOnContextDestroyed(f_quickjs_OnContextDestroyed callback) {
     gEventOnContextDestroyed = callback;
+}
+
+s_quick_error* quickjs_callFunctionWithUndefined(s_quick_ctx* pCtx, JSValue* host, int keepAlive) {
+    JSValue jsRes = JS_Call(pCtx->ctx, *host, JS_UNDEFINED, 0, NULL);
+    if (!keepAlive) quickjs_releaseFunction(pCtx, host);
+    return checkExecException(pCtx, jsRes);
 }

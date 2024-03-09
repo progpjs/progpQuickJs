@@ -21,7 +21,6 @@ import (
 //
 import "C"
 
-var cUInt8True = C.uint8_t(1)
 var gScriptOrigin = C.CString("<scriptOrigin>")
 
 var gNextFunctionId = 0
@@ -65,12 +64,18 @@ func auxRegisterFunction(jsName string, toCall func(ctx *Context, value []AnyVal
 //region Context
 
 type Context struct {
-	ptr         *C.s_quick_ctx
-	isKeepAlive bool
+	ptr          *C.s_quick_ctx
+	isKeepAlive  bool
+	taskQueue    *TaskQueue
+	scriptOrigin string
+	jsError      *JsErrorMessage
+	errorHandler ErrorHandler
 
 	refCount      int
 	refCountMutex sync.Mutex
 }
+
+type ErrorHandler func(*Context, *JsErrorMessage) bool
 
 func NewContext() *Context {
 	DeclareBackgroundTaskStarted()
@@ -83,7 +88,13 @@ func NewContext() *Context {
 		C.quickjs_bindFunction(m.ptr, jsf.name, jsf.paramCount, jsf.cFunction)
 	}
 
+	m.taskQueue = newTaskQueue()
+
 	return m
+}
+
+func (m *Context) SetErrorHandler(h ErrorHandler) {
+	m.errorHandler = h
 }
 
 func (m *Context) Dispose() {
@@ -94,6 +105,7 @@ func (m *Context) Dispose() {
 }
 
 func (m *Context) onCppDisposed() {
+	m.taskQueue.Dispose()
 	DeclareBackgroundTaskEnded()
 }
 
@@ -137,13 +149,14 @@ func (m *Context) ExecuteScript(script string, scriptOrigin string) *JsErrorMess
 	cScript := C.CString(script)
 	defer func() { C.free(unsafe.Pointer(cScript)) }()
 
-	res := C.quickjs_executeScript(m.ptr, cScript, gScriptOrigin)
+	m.scriptOrigin = scriptOrigin
 
-	if res.isException == cUInt8True {
-		return m.createErrorMessage(scriptOrigin, C.GoString(res.errorTitle), C.GoString(res.errorStackTrace))
+	jsErr := C.quickjs_executeScript(m.ptr, cScript, gScriptOrigin)
+	if jsErr != nil {
+		m.processError(jsErr)
 	}
 
-	return nil
+	return m.jsError
 }
 
 func (m *Context) createErrorMessage(scriptPath string, title string, body string) *JsErrorMessage {
@@ -175,15 +188,31 @@ func (m *Context) createErrorMessage(scriptPath string, title string, body strin
 	return res
 }
 
+func (m *Context) processError(jsErr *C.s_quick_error) {
+	m.jsError = m.createErrorMessage(m.scriptOrigin, C.GoString(jsErr.errorTitle), C.GoString(jsErr.errorStackTrace))
+	C.quickjs_releaseError(jsErr)
+
+	if m.errorHandler != nil {
+		canContinue := m.errorHandler(m, m.jsError)
+		if canContinue {
+			return
+		}
+	} else {
+		m.jsError.Print()
+	}
+
+	m.taskQueue.Dispose()
+}
+
 //endregion
 
 //region JsFunction
 
 type JsFunction struct {
-	ptr       unsafe.Pointer
-	ctx       *Context
-	isAsync   bool
-	keepAlive C.int
+	ptr               unsafe.Pointer
+	ctx               *Context
+	comeFromAsyncCall bool
+	keepAlive         C.int
 }
 
 func (m *JsFunction) Dispose() {
@@ -195,12 +224,19 @@ func (m *JsFunction) Dispose() {
 
 func (m *JsFunction) CallWithUndefined() {
 	if m.ptr != nil {
-		C.quickjs_callFunction(m.ctx.ptr, (*C.JSValue)(m.ptr), m.keepAlive)
-		m.ptr = nil
+		m.ctx.taskQueue.Push(func() {
+			err := C.quickjs_callFunctionWithUndefined(m.ctx.ptr, (*C.JSValue)(m.ptr), m.keepAlive)
+			m.ptr = nil
 
-		if m.isAsync {
-			m.ctx.decrRef()
-		}
+			if m.comeFromAsyncCall {
+				m.comeFromAsyncCall = false
+				m.ctx.decrRef()
+			}
+
+			if err != nil {
+				m.ctx.processError(err)
+			}
+		})
 	}
 }
 
@@ -315,7 +351,7 @@ func cgoCallDynamicFunction(functionId C.int, pCtx *C.s_quick_ctx, argc C.int) C
 			v := AnyValue{Type: cValueType, Value: C.GoBytes(cAnyValue.voidPtr, (C.int)(cAnyValue.size))}
 			allAnyValues = append(allAnyValues, v)
 		} else if cValueType == cAnyValueTypeFunction {
-			v := AnyValue{Type: cValueType, Value: &JsFunction{ctx: goCtx, isAsync: jsf.isAsync, ptr: unsafe.Pointer(cAnyValue.voidPtr)}}
+			v := AnyValue{Type: cValueType, Value: &JsFunction{ctx: goCtx, comeFromAsyncCall: jsf.isAsync, ptr: unsafe.Pointer(cAnyValue.voidPtr)}}
 			allAnyValues = append(allAnyValues, v)
 		}
 

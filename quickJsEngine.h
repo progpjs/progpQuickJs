@@ -44,20 +44,18 @@ typedef struct s_progp_anyValue {
 
 typedef struct s_quick_ctx s_quick_ctx;
 
-typedef struct s_quick_execResult {
+typedef struct s_quick_error {
     s_quick_ctx* pCtx;
-    uint8_t isException;
-    JSValue result;
     const char* errorTitle;
     const char* errorStackTrace;
-} s_quick_execResult;
+} s_quick_error;
 
 typedef struct s_quick_ctx {
     int refCount;
     JSContext* ctx;
     void* userData;
-    bool hasResult;
-    s_quick_execResult result;
+    bool hasException;
+    s_quick_error execException;
     s_progp_anyValue* inputAnyValues;
     int lastInputParamCount;
 } s_quick_ctx;
@@ -69,14 +67,17 @@ s_quick_ctx* quick_createContext(void* userData);
 void quickjs_incrContext(s_quick_ctx* pCtx);
 void quickjs_decrContext(s_quick_ctx* pCtx);
 
+void quickjs_releaseError(s_quick_error* error);
+
 void quickjs_releaseFunction(s_quick_ctx* pCtx, JSValue* host);
-void quickjs_callFunction(s_quick_ctx* pCtx, JSValue* host, int keepAlive);
-s_quick_execResult quickjs_executeScript(s_quick_ctx* pCtx, const char* script, const char* origin);
+s_quick_error* quickjs_executeScript(s_quick_ctx* pCtx, const char* script, const char* origin);
 void quickjs_bindFunction(s_quick_ctx* pCtx, const char* functionName, int minArgCount, JSCFunction fct);
 
 s_quick_ctx* quickjs_callParamsToAnyValue(JSContext *ctx, int argc, JSValueConst *argv);
 
 typedef void (*f_quickjs_OnContextDestroyed)(s_quick_ctx* ctx);
 void quickjs_setEventOnContextDestroyed(f_quickjs_OnContextDestroyed callback);
+
+s_quick_error* quickjs_callFunctionWithUndefined(s_quick_ctx* pCtx, JSValue* host, int keepAlive);
 
 #endif // QUICKJS_ENGINE_CPP
