@@ -113,7 +113,7 @@ int main(int argc, char **argv)
 
     quickjs_initialize();
 
-    s_quick_ctx* pCtx = quick_createContext();
+    s_quick_ctx* pCtx = quick_createContext(NULL);
     quickjs_bindFunction(pCtx, "js_print", 1, js_print);
     quickjs_bindFunction(pCtx, "js_stringToArrayBuffer", 1, js_stringToArrayBuffer);
     quickjs_bindFunction(pCtx, "js_arrayBufferToString", 1, js_arrayBufferToString);

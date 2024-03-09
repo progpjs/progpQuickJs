@@ -29,7 +29,7 @@ var gCFunctionTable = make([]*C.JSCFunction, 500)
 
 type jsFunction struct {
 	name       *C.char
-	goFunction func(value []AnyValue)
+	goFunction func(ctx *Context, value []AnyValue)
 
 	paramCount C.int
 	cFunction  *C.JSCFunction
@@ -40,7 +40,7 @@ func InitializeEngine() {
 	C.quickjs_registerDynamicFunctions()
 }
 
-func RegisterFunction(jsName string, toCall func(value []AnyValue)) {
+func RegisterFunction(jsName string, toCall func(ctx *Context, value []AnyValue)) {
 	id := gNextFunctionId
 	gNextFunctionId++
 
@@ -59,7 +59,8 @@ type Context struct {
 }
 
 func NewContext() *Context {
-	m := &Context{ctx: C.quick_createContext()}
+	m := &Context{}
+	m.ctx = C.quick_createContext(unsafe.Pointer(m))
 
 	for i := 0; i < gNextFunctionId; i++ {
 		jsf := gFunctionTable[i]
@@ -132,6 +133,10 @@ func (m *Context) createErrorMessage(scriptPath string, title string, body strin
 	return res
 }
 
+func (m *Context) CallFunction(fctRef unsafe.Pointer) {
+	C.quickjs_callFunction(m.ctx, (*C.JSValue)(fctRef))
+}
+
 //endregion
 
 //region AnyValue
@@ -150,18 +155,12 @@ var cAnyValueTypeJson = C.int(8)
 var cAnyValueTypeInt32 = C.int(9)
 
 type AnyValue struct {
-	Type  C.int
-	Value any
+	Type    C.int
+	Value   any
+	Pointer unsafe.Pointer
 }
 
-const cInt0 = C.int(0)
-const cInt1 = C.int(1)
-
-func createErrorAnyValue(error string) C.s_progp_anyValue {
-	var ev C.s_progp_anyValue
-	ev.errorMessage = C.CString(error)
-	return ev
-}
+var cInt1 = C.int(1)
 
 //endregion
 
@@ -175,9 +174,9 @@ func cgoRegisterDynamicFunction(id C.int, fctRef *C.JSCFunction) {
 //export cgoCallDynamicFunction
 func cgoCallDynamicFunction(id C.int, pCtx *C.s_quick_ctx, argc C.int) C.JSValue {
 	inputAnyValues := pCtx.inputAnyValues
-	count := int(argc)
+	goCtx := (*Context)(unsafe.Pointer(pCtx.userData))
 
-	// Size of struct: C.sizeof_s_progp_anyValue
+	count := int(argc)
 
 	cAnyValue := inputAnyValues
 	var allAnyValues []AnyValue
@@ -188,13 +187,31 @@ func cgoCallDynamicFunction(id C.int, pCtx *C.s_quick_ctx, argc C.int) C.JSValue
 		if cValueType == cAnyValueTypeInt32 {
 			v := AnyValue{Type: cValueType, Value: int(cAnyValue.size)}
 			allAnyValues = append(allAnyValues, v)
+		} else if cValueType == cAnyValueTypeNumber {
+			v := AnyValue{Type: cValueType, Value: float64(cAnyValue.number)}
+			allAnyValues = append(allAnyValues, v)
+		} else if cValueType == cAnyValueTypeBoolean {
+			v := AnyValue{Type: cValueType, Value: cAnyValue.size == cInt1}
+			allAnyValues = append(allAnyValues, v)
+		} else if cValueType == cAnyValueTypeString {
+			v := AnyValue{Type: cValueType, Value: C.GoString((*C.char)(cAnyValue.voidPtr))}
+			allAnyValues = append(allAnyValues, v)
+		} else if cValueType == cAnyValueTypeJson {
+			v := AnyValue{Type: cValueType, Value: C.GoString((*C.char)(cAnyValue.voidPtr))}
+			allAnyValues = append(allAnyValues, v)
+		} else if cValueType == cAnyValueTypeBuffer {
+			v := AnyValue{Type: cValueType, Value: C.GoBytes(cAnyValue.voidPtr, (C.int)(cAnyValue.size))}
+			allAnyValues = append(allAnyValues, v)
+		} else if cValueType == cAnyValueTypeFunction {
+			v := AnyValue{Type: cValueType, Pointer: unsafe.Pointer(cAnyValue.voidPtr)}
+			allAnyValues = append(allAnyValues, v)
 		}
 
 		cAnyValue = (*C.s_progp_anyValue)(unsafe.Add(unsafe.Pointer(cAnyValue), C.sizeof_s_progp_anyValue))
 	}
 
 	jsf := gFunctionTable[int(id)]
-	jsf.goFunction(allAnyValues)
+	jsf.goFunction(goCtx, allAnyValues)
 	return C.JS_UNDEFINED
 }
 

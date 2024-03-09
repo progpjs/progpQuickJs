@@ -13,16 +13,16 @@
 #define PROGP_DEBUG(m) std::cout << "[C-PROGP_DEBUG] - " << m << std::endl
 #define PROGP_LOG_ERROR(FROM, WHAT) std::cout << "ERROR - " << FROM << " - " << WHAT << std::endl
 
-#define AnyValueTypeUndefined   0;
-#define AnyValueTypeNull        1;
-#define AnyValueTypeInvalid     2;
-#define AnyValueTypeNumber      3;
-#define AnyValueTypeString      4;
-#define AnyValueTypeBoolean     5;
-#define AnyValueTypeBuffer      6;
-#define AnyValueTypeFunction    7;
-#define AnyValueTypeJson        8;
-#define AnyValueTypeInt32       9;
+#define AnyValueTypeUndefined   0
+#define AnyValueTypeNull        1
+#define AnyValueTypeInvalid     2
+#define AnyValueTypeNumber      3
+#define AnyValueTypeString      4
+#define AnyValueTypeBoolean     5
+#define AnyValueTypeBuffer      6
+#define AnyValueTypeFunction    7
+#define AnyValueTypeJson        8
+#define AnyValueTypeInt32       9
 
 typedef struct s_progp_anyValue {
     int valueType;
@@ -53,22 +53,23 @@ typedef struct s_quick_execResult {
 } s_quick_execResult;
 
 typedef struct s_quick_ctx {
-    JSContext* ctx;
     int refCount;
+    JSContext* ctx;
+    void* userData;
     bool hasResult;
     s_quick_execResult result;
     s_progp_anyValue* inputAnyValues;
+    int lastInputParamCount;
 } s_quick_ctx;
 
 void quickjs_initialize();
 void quickjs_exit();
 
-s_quick_ctx* quick_createContext();
+s_quick_ctx* quick_createContext(void* userData);
 void quickjs_incrContext(s_quick_ctx* pCtx);
 void quickjs_decrContext(s_quick_ctx* pCtx);
 
-JSValue quick_createExternalPointer(s_quick_ctx* pCtx, void* ptr);
-
+void quickjs_callFunction(s_quick_ctx* pCtx, JSValue* host);
 s_quick_execResult quickjs_executeScript(s_quick_ctx* pCtx, const char* script, const char* origin);
 void quickjs_bindFunction(s_quick_ctx* pCtx, const char* functionName, int minArgCount, JSCFunction fct);
 

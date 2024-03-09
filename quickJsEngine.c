@@ -6,6 +6,29 @@
 
 JSRuntime *gRuntime;
 
+void freeInputParams(JSContext *ctx, s_progp_anyValue* values, int maxCount);
+
+typedef struct s_quickJs_string {
+    JSRefCountHeader header; /* must come first, 32-bit */
+    uint32_t len : 31;
+    uint8_t is_wide_char : 1; /* 0 = 8 bits, 1 = 16 bits characters */
+    /* for JS_ATOM_TYPE_SYMBOL: hash = 0, atom_type = 3,
+       for JS_ATOM_TYPE_PRIVATE: hash = 1, atom_type = 3
+       XXX: could change encoding to have one more bit in hash */
+    uint32_t hash : 30;
+    uint8_t atom_type : 2; /* != 0 if atom, JS_ATOM_TYPE_x */
+    uint32_t hash_next; /* atom_index for JS_ATOM_TYPE_SYMBOL */
+#ifdef DUMP_LEAKS
+    struct list_head link; /* string list */
+#endif
+    union {
+        uint8_t str8[0]; /* 8 bit strings will get an extra null terminator */
+        uint16_t str16[0];
+    } u;
+} s_quickJs_string;
+
+// *********************************************************************************************************************
+
 static JSContext *customQuickJsContext(JSRuntime *rt)
 {
     JSContext *ctx = JS_NewContextRaw(rt);
@@ -42,7 +65,7 @@ void quickjs_initialize() {
     JS_SetModuleLoaderFunc(gRuntime, NULL, js_module_loader, NULL);
 }
 
-s_quick_ctx* quick_createContext() {
+s_quick_ctx* quick_createContext(void *userData) {
     JSContext* ctx = customQuickJsContext(gRuntime);
 
     // No use of the command line here.
@@ -53,8 +76,11 @@ s_quick_ctx* quick_createContext() {
 
     s_quick_ctx* pCtx = malloc(sizeof(s_quick_ctx));
     pCtx->ctx = ctx;
+    pCtx->userData = userData;
     pCtx->hasResult = false;
     pCtx->inputAnyValues = calloc(15, sizeof(s_progp_anyValue));
+    pCtx->lastInputParamCount = 0;
+
 
     // Allows to retrieve value.
     JS_SetContextOpaque(ctx, pCtx);
@@ -77,6 +103,10 @@ void quickjs_decrContext(s_quick_ctx* pCtx) {
     if (pCtx->refCount==0) {
         if (pCtx->hasResult) {
             quickjs_freeExecResult(pCtx->result);
+        }
+
+        if (pCtx->lastInputParamCount!=0) {
+            freeInputParams(pCtx->ctx, pCtx->inputAnyValues, pCtx->lastInputParamCount);
         }
 
         JS_FreeContext(pCtx->ctx);
@@ -139,26 +169,6 @@ int quickjs_enqueueJob(s_quick_ctx* pCtx, JSJobFunc *job_func, int argc, JSValue
     return JS_EnqueueJob(pCtx->ctx, job_func, argc, argv);
 }
 
-typedef struct s_quickJs_string {
-    JSRefCountHeader header; /* must come first, 32-bit */
-    uint32_t len : 31;
-    uint8_t is_wide_char : 1; /* 0 = 8 bits, 1 = 16 bits characters */
-    /* for JS_ATOM_TYPE_SYMBOL: hash = 0, atom_type = 3,
-       for JS_ATOM_TYPE_PRIVATE: hash = 1, atom_type = 3
-       XXX: could change encoding to have one more bit in hash */
-    uint32_t hash : 30;
-    uint8_t atom_type : 2; /* != 0 if atom, JS_ATOM_TYPE_x */
-    uint32_t hash_next; /* atom_index for JS_ATOM_TYPE_SYMBOL */
-#ifdef DUMP_LEAKS
-    struct list_head link; /* string list */
-#endif
-    union {
-        uint8_t str8[0]; /* 8 bit strings will get an extra null terminator */
-        uint16_t str16[0];
-    } u;
-} s_quickJs_string;
-
-
 static inline void jsStringToCString(JSContext *ctx, const JSValueConst jsValue, s_progp_anyValue* anyValue) {
     s_quickJs_string* jsString = jsValue.u.ptr;
 
@@ -169,15 +179,32 @@ static inline void jsStringToCString(JSContext *ctx, const JSValueConst jsValue,
         anyValue->voidPtr = (void*)cString2;
         anyValue->mustFree = 1;
     } else {
-        const char *str = (const char *)jsString->u.str8;
         anyValue->voidPtr = (void*)jsString->u.str8;
         anyValue->mustFree = 0;
+    }
+}
+
+void freeInputParams(JSContext *ctx, s_progp_anyValue* values, int maxCount) {
+    for (int i=0;i<maxCount;i++) {
+        s_progp_anyValue* anyValue = &values[i];
+
+        if (anyValue->mustFree) {
+            if (anyValue->valueType == JS_TAG_STRING) {
+                JS_FreeCString(ctx, anyValue->voidPtr);
+            }
+        }
     }
 }
 
 s_quick_ctx* quickjs_callParamsToAnyValue(JSContext *ctx, int argc, JSValueConst *argv) {
     s_quick_ctx* pCtx = (s_quick_ctx*)JS_GetContextOpaque(ctx);
     s_progp_anyValue* values = pCtx->inputAnyValues;
+
+    if (pCtx->lastInputParamCount!=0) {
+        freeInputParams(ctx, pCtx->inputAnyValues, pCtx->lastInputParamCount);
+    }
+    //
+    pCtx->lastInputParamCount = argc;
 
     int tag;
 
@@ -244,9 +271,16 @@ s_quick_ctx* quickjs_callParamsToAnyValue(JSContext *ctx, int argc, JSValueConst
             anyValue->valueType = AnyValueTypeBuffer;
             anyValue->mustFree = 0;
             anyValue->voidPtr = buffer;
+            anyValue->size = size;
             anyValue->mustFree = 0;
         }
     }
 
+
     return pCtx;
+}
+
+void quickjs_callFunction(s_quick_ctx* pCtx, JSValue* host) {
+    JSValue res = JS_Call(pCtx->ctx, *host, JS_UNDEFINED, 0, NULL);
+    JS_FreeValue(pCtx->ctx, res);
 }
