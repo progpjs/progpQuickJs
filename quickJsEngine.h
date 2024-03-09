@@ -69,7 +69,8 @@ s_quick_ctx* quick_createContext(void* userData);
 void quickjs_incrContext(s_quick_ctx* pCtx);
 void quickjs_decrContext(s_quick_ctx* pCtx);
 
-void quickjs_callFunction(s_quick_ctx* pCtx, JSValue* host);
+void quickjs_releaseFunction(s_quick_ctx* pCtx, JSValue* host);
+void quickjs_callFunction(s_quick_ctx* pCtx, JSValue* host, int keepAlive);
 s_quick_execResult quickjs_executeScript(s_quick_ctx* pCtx, const char* script, const char* origin);
 void quickjs_bindFunction(s_quick_ctx* pCtx, const char* functionName, int minArgCount, JSCFunction fct);
 

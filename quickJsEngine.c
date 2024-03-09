@@ -263,6 +263,14 @@ s_quick_ctx* quickjs_callParamsToAnyValue(JSContext *ctx, int argc, JSValueConst
                 anyValue->valueType = AnyValueTypeFunction;
                 //
                 JSValue *valuePtr = (JSValue *) malloc(sizeof(JSValue));
+
+                // Must duplicate since this value will be automatically released by QuickJS.
+                // But most of the time it's used for async, so we must keep the ref ok.
+                //
+                // WARNING: the ref must be released manually once.
+                //          Is automatically done once the function is called.
+                //          Otherwise you have to do it manually.
+                //
                 *valuePtr = JS_DupValue(ctx, jsValue);
                 anyValue->voidPtr = valuePtr;
                 anyValue->mustFree = 0;
@@ -290,9 +298,16 @@ s_quick_ctx* quickjs_callParamsToAnyValue(JSContext *ctx, int argc, JSValueConst
     return pCtx;
 }
 
-void quickjs_callFunction(s_quick_ctx* pCtx, JSValue* host) {
+void quickjs_releaseFunction(s_quick_ctx* pCtx, JSValue* host) {
+    PROGP_PRINT("quickjs_releaseFunction / d1");
+    JS_FreeValue(pCtx->ctx, *host);
+    free(host);
+}
+
+void quickjs_callFunction(s_quick_ctx* pCtx, JSValue* host, int keepAlive) {
     JSValue res = JS_Call(pCtx->ctx, *host, JS_UNDEFINED, 0, NULL);
     JS_FreeValue(pCtx->ctx, res);
+    if (!keepAlive) quickjs_releaseFunction(pCtx, host);
 }
 
 void quickjs_setEventOnContextDestroyed(f_quickjs_OnContextDestroyed callback) {

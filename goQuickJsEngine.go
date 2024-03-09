@@ -65,7 +65,7 @@ func auxRegisterFunction(jsName string, toCall func(ctx *Context, value []AnyVal
 //region Context
 
 type Context struct {
-	ctx         *C.s_quick_ctx
+	ptr         *C.s_quick_ctx
 	isKeepAlive bool
 
 	refCount      int
@@ -76,11 +76,11 @@ func NewContext() *Context {
 	DeclareBackgroundTaskStarted()
 
 	m := &Context{}
-	m.ctx = C.quick_createContext(unsafe.Pointer(m))
+	m.ptr = C.quick_createContext(unsafe.Pointer(m))
 
 	for i := 0; i < gNextFunctionId; i++ {
 		jsf := gFunctionTable[i]
-		C.quickjs_bindFunction(m.ctx, jsf.name, jsf.paramCount, jsf.cFunction)
+		C.quickjs_bindFunction(m.ptr, jsf.name, jsf.paramCount, jsf.cFunction)
 	}
 
 	return m
@@ -88,7 +88,7 @@ func NewContext() *Context {
 
 func (m *Context) Dispose() {
 	if m.isKeepAlive {
-		C.quickjs_decrContext(m.ctx)
+		C.quickjs_decrContext(m.ptr)
 		m.isKeepAlive = false
 	}
 }
@@ -105,7 +105,7 @@ func (m *Context) KeepAlive() {
 	}
 
 	m.isKeepAlive = true
-	C.quickjs_incrContext(m.ctx)
+	C.quickjs_incrContext(m.ptr)
 
 	// Will dispose the context on the GC run if no more references.
 	runtime.SetFinalizer(m, (*Context).Dispose)
@@ -115,7 +115,7 @@ func (m *Context) incrRef() {
 	m.refCountMutex.Lock()
 
 	if m.refCount == 0 {
-		C.quickjs_incrContext(m.ctx)
+		C.quickjs_incrContext(m.ptr)
 	}
 
 	m.refCount++
@@ -125,9 +125,9 @@ func (m *Context) incrRef() {
 func (m *Context) decrRef() {
 	m.refCountMutex.Lock()
 
-	m.refCount++
+	m.refCount--
 	if m.refCount == 0 {
-		C.quickjs_decrContext(m.ctx)
+		C.quickjs_decrContext(m.ptr)
 	}
 
 	m.refCountMutex.Unlock()
@@ -137,7 +137,7 @@ func (m *Context) ExecuteScript(script string, scriptOrigin string) *JsErrorMess
 	cScript := C.CString(script)
 	defer func() { C.free(unsafe.Pointer(cScript)) }()
 
-	res := C.quickjs_executeScript(m.ctx, cScript, gScriptOrigin)
+	res := C.quickjs_executeScript(m.ptr, cScript, gScriptOrigin)
 
 	if res.isException == cUInt8True {
 		return m.createErrorMessage(scriptOrigin, C.GoString(res.errorTitle), C.GoString(res.errorStackTrace))
@@ -175,25 +175,41 @@ func (m *Context) createErrorMessage(scriptPath string, title string, body strin
 	return res
 }
 
-func (m *Context) CallFunction(fctRef unsafe.Pointer) {
-	C.quickjs_callFunction(m.ctx, (*C.JSValue)(fctRef))
-}
-
 //endregion
 
 //region JsFunction
 
 type JsFunction struct {
-	ptr     unsafe.Pointer
-	ctx     *Context
-	isAsync bool
+	ptr       unsafe.Pointer
+	ctx       *Context
+	isAsync   bool
+	keepAlive C.int
+}
+
+func (m *JsFunction) Dispose() {
+	if m.ptr != nil {
+		C.quickjs_releaseFunction(m.ctx.ptr, (*C.JSValue)(m.ptr))
+		m.ptr = nil
+	}
 }
 
 func (m *JsFunction) CallWithUndefined() {
-	m.ctx.CallFunction(m.ptr)
+	if m.ptr != nil {
+		C.quickjs_callFunction(m.ctx.ptr, (*C.JSValue)(m.ptr), m.keepAlive)
+		m.ptr = nil
 
-	if m.isAsync {
-		m.ctx.decrRef()
+		if m.isAsync {
+			m.ctx.decrRef()
+		}
+	}
+}
+
+func (m *JsFunction) KeepAlive() {
+	if m.ptr != nil {
+		if m.keepAlive != cInt1 {
+			m.keepAlive = cInt1
+			runtime.SetFinalizer(m, (*JsFunction).Dispose)
+		}
 	}
 }
 
