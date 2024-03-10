@@ -2,6 +2,8 @@ package jsQuickJs
 
 import "C"
 import (
+	"encoding/json"
+	"fmt"
 	"runtime"
 	"strconv"
 	"strings"
@@ -314,6 +316,38 @@ func (m *JsFunction) CallWithAutoReleaseResource2(res any) {
 	})
 }
 
+func (m *JsFunction) CallWith(values ...any) {
+	if m.ptr == nil {
+		return
+	}
+
+	m.ctx.taskQueue.Push(func() {
+		m.doCallWith(values, false)
+	})
+}
+
+func (m *JsFunction) CallSyncWith(values ...any) any {
+	if m.ptr == nil {
+		return nil
+	}
+
+	return m.doCallWith(values, true)
+}
+
+func (m *JsFunction) doCallWith(values []any, decodeReturn bool) any {
+	m.ctx.ptr.lastOutputParamCount = C.int(len(values))
+	cOutputParams := m.ctx.ptr.outpuAnyValues
+
+	for _, v := range values {
+		goValueToCAnyValue(v, cOutputParams)
+		cOutputParams = (*C.q_quick_anyValue)(unsafe.Add(unsafe.Pointer(cOutputParams), C.sizeof_q_quick_anyValue))
+
+		// TODO: faire l'appel et récupérer le résultat
+	}
+
+	return nil
+}
+
 func (m *JsFunction) KeepAlive() {
 	if m.ptr != nil {
 		if m.keepAlive != cInt1 {
@@ -321,6 +355,72 @@ func (m *JsFunction) KeepAlive() {
 			runtime.SetFinalizer(m, (*JsFunction).Dispose)
 		}
 	}
+}
+
+func goValueToCAnyValue(goVal any, cAnyVal *C.q_quick_anyValue) {
+	if goVal == nil {
+		cAnyVal.valueType = cAnyValueTypeUndefined
+		return
+	}
+
+	if asInt, ok := goVal.(int); ok {
+		cAnyVal.valueType = cAnyValueTypeNumber
+		cAnyVal.number = C.double(float64(asInt))
+		return
+	}
+
+	if asFloat, ok := goVal.(float64); ok {
+		cAnyVal.valueType = cAnyValueTypeNumber
+		cAnyVal.number = C.double(asFloat)
+		return
+	}
+
+	if asBool, ok := goVal.(bool); ok {
+		cAnyVal.valueType = cAnyValueTypeBoolean
+
+		if asBool {
+			cAnyVal.size = cInt1
+		} else {
+			cAnyVal.size = cInt0
+		}
+
+		return
+	}
+
+	if asString, ok := goVal.(string); ok {
+		cAnyVal.valueType = cAnyValueTypeString
+		cAnyVal.voidPtr = unsafe.Pointer(C.CString(asString))
+		cAnyVal.size = C.int(len(asString))
+		return
+	}
+
+	if asBuffer, ok := goVal.([]byte); ok {
+		cAnyVal.valueType = cAnyValueTypeBuffer
+		cAnyVal.voidPtr = unsafe.Pointer(unsafe.Pointer(&asBuffer[0]))
+		cAnyVal.size = C.int(len(asBuffer))
+		return
+	}
+
+	if asError, ok := goVal.(error); ok {
+		asString := asError.Error()
+		cAnyVal.valueType = cAnyValueTypeError
+		cAnyVal.voidPtr = unsafe.Pointer(C.CString(asString))
+		cAnyVal.size = C.int(len(asString))
+	}
+
+	bAsJson, err := json.Marshal(goVal)
+
+	if err != nil {
+		cAnyVal.valueType = cAnyValueTypeJson
+		cAnyVal.voidPtr = unsafe.Pointer(&bAsJson[0])
+		cAnyVal.size = C.int(len(bAsJson))
+		return
+	}
+
+	asString := err.Error()
+	cAnyVal.valueType = cAnyValueTypeError
+	cAnyVal.voidPtr = unsafe.Pointer(C.CString(asString))
+	cAnyVal.size = C.int(len(asString))
 }
 
 //endregion
@@ -402,22 +502,22 @@ func WaitTasksEnd() {
 
 type registeredFunction struct {
 	name       *C.char
-	goFunction func(ctx *Context, value []AnyValue)
+	goFunction func(call *JsToGoCall)
 
 	paramCount C.int
 	cFunction  *C.JSCFunction
 	isAsync    bool
 }
 
-func RegisterAsyncFunction(jsName string, toCall func(ctx *Context, value []AnyValue)) {
+func RegisterAsyncFunction(jsName string, toCall func(call *JsToGoCall)) {
 	auxRegisterFunction(jsName, toCall, true)
 }
 
-func RegisterFunction(jsName string, toCall func(ctx *Context, value []AnyValue)) {
+func RegisterFunction(jsName string, toCall func(call *JsToGoCall)) {
 	auxRegisterFunction(jsName, toCall, false)
 }
 
-func auxRegisterFunction(jsName string, toCall func(ctx *Context, value []AnyValue), isAsync bool) {
+func auxRegisterFunction(jsName string, toCall func(call *JsToGoCall), isAsync bool) {
 	id := gNextFunctionId
 	gNextFunctionId++
 
@@ -437,7 +537,7 @@ type AnyValueType int
 
 var cAnyValueTypeUndefined = C.int(0)
 var cAnyValueTypeNull = C.int(1)
-var cAnyValueTypeInvalid = C.int(2)
+var cAnyValueTypeError = C.int(2)
 var cAnyValueTypeNumber = C.int(3)
 var cAnyValueTypeString = C.int(4)
 var cAnyValueTypeBoolean = C.int(5)
@@ -452,6 +552,50 @@ type AnyValue struct {
 }
 
 var cInt1 = C.int(1)
+var cInt0 = C.int(0)
+
+//endregion
+
+//region JsToGoCall
+
+type JsToGoCall struct {
+	params []AnyValue
+	ctx    *Context
+	error  string
+}
+
+func (m JsToGoCall) AssertArgCount(count int) bool {
+	if len(m.params) < count {
+		m.error = fmt.Sprintf("call param error: %d argument expected", count)
+		return false
+	}
+
+	return true
+}
+
+func (m JsToGoCall) AssertIsFunction(paramOffset int) bool {
+	_, ok := m.params[paramOffset].Value.(*JsFunction)
+	return ok
+}
+
+func (m JsToGoCall) AssertIsInt(paramOffset int) bool {
+	_, ok := m.params[paramOffset].Value.(int)
+	return ok
+}
+
+func (m JsToGoCall) AsFunction(count int) *JsFunction {
+	f, ok := m.params[count].Value.(*JsFunction)
+
+	if ok {
+		return f
+	}
+
+	return nil
+}
+
+func (m JsToGoCall) AsInt(count int) int {
+	return m.params[count].Value.(int)
+}
 
 //endregion
 
@@ -460,6 +604,17 @@ var cInt1 = C.int(1)
 //export cgoRegisterDynamicFunction
 func cgoRegisterDynamicFunction(id C.int, fctRef *C.JSCFunction) {
 	gCFunctionTable[int(id)] = fctRef
+}
+
+//export cgoOnContextReleased
+func cgoOnContextReleased(pCtx *C.s_quick_ctx) {
+	goCtx := (*Context)(unsafe.Pointer(pCtx.userData))
+	goCtx.onCppDisposed()
+}
+
+//export cgoOnAutoDisposeResourceReleased
+func cgoOnAutoDisposeResourceReleased(res unsafe.Pointer) {
+	(*trackedResource)(res).dispose()
 }
 
 //export cgoCallDynamicFunction
@@ -506,19 +661,14 @@ func cgoCallDynamicFunction(functionId C.int, pCtx *C.s_quick_ctx, argc C.int) C
 		goCtx.incrRef()
 	}
 
-	jsf.goFunction(goCtx, allAnyValues)
+	call := JsToGoCall{ctx: goCtx, params: allAnyValues}
+	jsf.goFunction(&call)
+
+	if call.error != "" {
+		// TODO
+	}
+
 	return C.JS_UNDEFINED
-}
-
-//export cgoOnContextReleased
-func cgoOnContextReleased(pCtx *C.s_quick_ctx) {
-	goCtx := (*Context)(unsafe.Pointer(pCtx.userData))
-	goCtx.onCppDisposed()
-}
-
-//export cgoOnAutoDisposeResourceReleased
-func cgoOnAutoDisposeResourceReleased(res unsafe.Pointer) {
-	(*trackedResource)(res).dispose()
 }
 
 //endregion

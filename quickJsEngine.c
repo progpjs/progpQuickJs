@@ -115,7 +115,7 @@ void quickjs_releaseError(s_quick_error* error) {
 
 //region Context
 
-void freeInputParams(JSContext *ctx, q_quick_anyValue* values, int maxCount) {
+void freeAnyValueList(JSContext *ctx, q_quick_anyValue* values, int maxCount) {
     for (int i=0;i<maxCount;i++) {
         q_quick_anyValue* anyValue = &values[i];
 
@@ -134,7 +134,11 @@ void disposeContext(s_quick_ctx* pCtx) {
     }
 
     if (pCtx->lastInputParamCount!=0) {
-        freeInputParams(pCtx->ctx, pCtx->inputAnyValues, pCtx->lastInputParamCount);
+        freeAnyValueList(pCtx->ctx, pCtx->inputAnyValues, pCtx->lastInputParamCount);
+    }
+
+    if (pCtx->lastOutputParamCount!=0) {
+        freeAnyValueList(pCtx->ctx, pCtx->outpuAnyValues, pCtx->lastOutputParamCount);
     }
 }
 
@@ -187,6 +191,9 @@ s_quick_ctx* quickjs_createContext(void *userData) {
     //
     pCtx->inputAnyValues = calloc(15, sizeof(q_quick_anyValue));
     pCtx->lastInputParamCount = 0;
+    //
+    pCtx->outpuAnyValues = calloc(15, sizeof(q_quick_anyValue));
+    pCtx->lastOutputParamCount = 0;
 
     // Allows to retrieve value.
     JS_SetContextOpaque(ctx, pCtx);
@@ -218,7 +225,11 @@ void quickjs_decrContext(s_quick_ctx* pCtx) {
     }
 
     if (pCtx->lastInputParamCount!=0) {
-        freeInputParams(pCtx->ctx, pCtx->inputAnyValues, pCtx->lastInputParamCount);
+        freeAnyValueList(pCtx->ctx, pCtx->inputAnyValues, pCtx->lastInputParamCount);
+    }
+
+    if (pCtx->lastOutputParamCount!=0) {
+        freeAnyValueList(pCtx->ctx, pCtx->outpuAnyValues, pCtx->lastOutputParamCount);
     }
 
     //s_quickJs_gcItem* gcItem = pCtx->ctx;
@@ -279,7 +290,7 @@ s_quick_ctx* quickjs_callParamsToAnyValue(JSContext *ctx, int argc, JSValueConst
     q_quick_anyValue* values = pCtx->inputAnyValues;
 
     if (pCtx->lastInputParamCount!=0) {
-        freeInputParams(ctx, pCtx->inputAnyValues, pCtx->lastInputParamCount);
+        freeAnyValueList(ctx, pCtx->inputAnyValues, pCtx->lastInputParamCount);
     }
     //
     pCtx->lastInputParamCount = argc;

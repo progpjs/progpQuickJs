@@ -13,7 +13,7 @@
 
 #define AnyValueTypeUndefined   0
 #define AnyValueTypeNull        1
-#define AnyValueTypeInvalid     2
+#define AnyValueTypeError       2
 #define AnyValueTypeNumber      3
 #define AnyValueTypeString      4
 #define AnyValueTypeBoolean     5
@@ -57,8 +57,13 @@ typedef struct s_quick_ctx {
 
     bool hasException;
     s_quick_error execException;
+
     q_quick_anyValue* inputAnyValues;
     int lastInputParamCount;
+
+    q_quick_anyValue* outpuAnyValues;
+    int lastOutputParamCount;
+
 } s_quick_ctx;
 
 typedef void (*f_quickjs_OnContextDestroyed)(s_quick_ctx* ctx);

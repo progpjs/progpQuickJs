@@ -55,6 +55,7 @@ static JSValue js_receiveFunction(JSContext *ctx, JSValueConst this_val, int arg
 }
 
 static JSValue js_test(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv) {
+    //JS_Throw()
     return JS_UNDEFINED;
 }
 
