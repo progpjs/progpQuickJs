@@ -316,25 +316,25 @@ func (m *JsFunction) CallWithAutoReleaseResource2(res any) {
 	})
 }
 
-func (m *JsFunction) CallWith(values ...any) {
+func (m *JsFunction) CallWithAsync(values ...any) {
 	if m.ptr == nil {
 		return
 	}
 
 	m.ctx.taskQueue.Push(func() {
-		m.doCallWith(values, false)
+		m.doCallWith(values)
 	})
 }
 
-func (m *JsFunction) CallSyncWith(values ...any) any {
+func (m *JsFunction) CallWith(values ...any) AnyValue {
 	if m.ptr == nil {
-		return nil
+		return AnyValue{Type: cAnyValueTypeUndefined}
 	}
 
-	return m.doCallWith(values, true)
+	return m.doCallWith(values)
 }
 
-func (m *JsFunction) doCallWith(values []any, decodeReturn bool) any {
+func (m *JsFunction) doCallWith(values []any) AnyValue {
 	m.ctx.ptr.goToJsValuesCount = C.int(len(values))
 	cOutputParams := m.ctx.ptr.goToJsValues
 
@@ -343,15 +343,14 @@ func (m *JsFunction) doCallWith(values []any, decodeReturn bool) any {
 		cOutputParams = (*C.s_quick_anyValue)(unsafe.Add(unsafe.Pointer(cOutputParams), C.sizeof_s_quick_anyValue))
 	}
 
-	//TODO: obtenir une structure contenant errreur + réponse
-	err := C.quickjs_callFunctionWithAnyValues(m.ctx.ptr, m.ptr, m.keepAlive)
+	res := C.quickjs_callFunctionWithAnyValues(m.ctx.ptr, m.ptr, m.keepAlive)
 
-	if err != nil {
-		m.ctx.processError(err)
+	if res.error != nil {
+		m.ctx.processError(res.error)
+		return AnyValue{Type: cAnyValueTypeUndefined}
 	}
 
-	// TODO: renvoyer la réponse.
-	return nil
+	return cAnyValueToGoAnyValue(m.ctx, false, &res.returnValue)
 }
 
 func (m *JsFunction) KeepAlive() {
@@ -560,6 +559,28 @@ type AnyValue struct {
 var cInt1 = C.int(1)
 var cInt0 = C.int(0)
 
+func cAnyValueToGoAnyValue(ctx *Context, isAsync bool, cAnyValue *C.s_quick_anyValue) AnyValue {
+	cValueType := cAnyValue.valueType
+
+	if cValueType == cAnyValueTypeInt32 {
+		return AnyValue{Type: cValueType, Value: int(cAnyValue.size)}
+	} else if cValueType == cAnyValueTypeNumber {
+		return AnyValue{Type: cValueType, Value: float64(cAnyValue.number)}
+	} else if cValueType == cAnyValueTypeBoolean {
+		return AnyValue{Type: cValueType, Value: cAnyValue.size == cInt1}
+	} else if cValueType == cAnyValueTypeString {
+		return AnyValue{Type: cValueType, Value: C.GoString((*C.char)(cAnyValue.voidPtr))}
+	} else if cValueType == cAnyValueTypeJson {
+		return AnyValue{Type: cValueType, Value: C.GoString((*C.char)(cAnyValue.voidPtr))}
+	} else if cValueType == cAnyValueTypeBuffer {
+		return AnyValue{Type: cValueType, Value: C.GoBytes(cAnyValue.voidPtr, (C.int)(cAnyValue.size))}
+	} else if cValueType == cAnyValueTypeFunction {
+		return AnyValue{Type: cValueType, Value: &JsFunction{ctx: ctx, comeFromAsyncCall: isAsync, ptr: (*C.JSValue)(cAnyValue.voidPtr)}}
+	}
+
+	return AnyValue{Type: cAnyValueTypeUndefined}
+}
+
 //endregion
 
 //region JsToGoCall
@@ -635,31 +656,7 @@ func cgoCallDynamicFunction(functionId C.int, pCtx *C.s_quick_ctx, argc C.int) C
 	var allAnyValues []AnyValue
 
 	for i := 0; i < count; i++ {
-		cValueType := cAnyValue.valueType
-
-		if cValueType == cAnyValueTypeInt32 {
-			v := AnyValue{Type: cValueType, Value: int(cAnyValue.size)}
-			allAnyValues = append(allAnyValues, v)
-		} else if cValueType == cAnyValueTypeNumber {
-			v := AnyValue{Type: cValueType, Value: float64(cAnyValue.number)}
-			allAnyValues = append(allAnyValues, v)
-		} else if cValueType == cAnyValueTypeBoolean {
-			v := AnyValue{Type: cValueType, Value: cAnyValue.size == cInt1}
-			allAnyValues = append(allAnyValues, v)
-		} else if cValueType == cAnyValueTypeString {
-			v := AnyValue{Type: cValueType, Value: C.GoString((*C.char)(cAnyValue.voidPtr))}
-			allAnyValues = append(allAnyValues, v)
-		} else if cValueType == cAnyValueTypeJson {
-			v := AnyValue{Type: cValueType, Value: C.GoString((*C.char)(cAnyValue.voidPtr))}
-			allAnyValues = append(allAnyValues, v)
-		} else if cValueType == cAnyValueTypeBuffer {
-			v := AnyValue{Type: cValueType, Value: C.GoBytes(cAnyValue.voidPtr, (C.int)(cAnyValue.size))}
-			allAnyValues = append(allAnyValues, v)
-		} else if cValueType == cAnyValueTypeFunction {
-			v := AnyValue{Type: cValueType, Value: &JsFunction{ctx: goCtx, comeFromAsyncCall: jsf.isAsync, ptr: (*C.JSValue)(cAnyValue.voidPtr)}}
-			allAnyValues = append(allAnyValues, v)
-		}
-
+		allAnyValues = append(allAnyValues, cAnyValueToGoAnyValue(goCtx, jsf.isAsync, cAnyValue))
 		cAnyValue = (*C.s_quick_anyValue)(unsafe.Add(unsafe.Pointer(cAnyValue), C.sizeof_s_quick_anyValue))
 	}
 

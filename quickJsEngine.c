@@ -263,10 +263,86 @@ void freeArrayBuffer(JSRuntime *rt, void *opaque, void *ptr) {
     free(ptr);
 }
 
-s_quick_error* quickjs_callFunctionWithAnyValues(s_quick_ctx* pCtx, JSValue* fctToCall, int keepAlive) {
+void jsValueToAnyValue(JSContext *ctx, const JSValueConst jsValue, s_quick_anyValue* anyValue) {
+    anyValue->mustFree = 0;
+    int tag = jsValue.tag;
+
+    if (tag == JS_TAG_UNDEFINED) {
+        anyValue->valueType = AnyValueTypeUndefined;
+        return;
+    }
+
+    if (tag == JS_TAG_NULL) {
+        anyValue->valueType = AnyValueTypeNull;
+        return;
+    }
+
+    if (tag == JS_TAG_INT) {
+        anyValue->valueType = AnyValueTypeInt32;
+        anyValue->size = jsValue.u.int32;
+        return;
+    }
+
+    if (tag == JS_TAG_FLOAT64) {
+        anyValue->valueType = AnyValueTypeNumber;
+        anyValue->number = jsValue.u.float64;
+        return;
+    }
+
+    if (tag == JS_TAG_BOOL) {
+        anyValue->valueType = AnyValueTypeBoolean;
+        anyValue->size = jsValue.u.int32;
+        return;
+    }
+
+    if (tag == JS_TAG_STRING) {
+        anyValue->valueType = AnyValueTypeString;
+        jsStringToCString(ctx, jsValue, anyValue);
+        return;
+    }
+
+    if (tag == JS_TAG_OBJECT) {
+        if (JS_IsFunction(ctx, jsValue)) {
+            anyValue->valueType = AnyValueTypeFunction;
+            //
+            JSValue *valuePtr = (JSValue *) malloc(sizeof(JSValue));
+
+            // Must duplicate since this value will be automatically released by QuickJS.
+            // But most of the time it's used for async, so we must keep the ref ok.
+            //
+            // WARNING: the ref must be released manually once.
+            //          Is automatically done once the function is called.
+            //          Otherwise you have to do it manually.
+            //
+            *valuePtr = JS_DupValue(ctx, jsValue);
+            anyValue->voidPtr = valuePtr;
+            anyValue->mustFree = 1;
+        } else {
+            anyValue->valueType = AnyValueTypeJson;
+            //
+            JSValueConst tmp = JS_JSONStringify(ctx, jsValue, JS_UNDEFINED, JS_UNDEFINED);
+            jsStringToCString(ctx, tmp, anyValue);
+        }
+    }
+
+    size_t size;
+    uint8_t* buffer = JS_GetArrayBuffer(ctx, &size, jsValue);
+
+    if (buffer!=NULL) {
+        anyValue->valueType = AnyValueTypeBuffer;
+        anyValue->mustFree = 0;
+        anyValue->voidPtr = buffer;
+        anyValue->size = size;
+        anyValue->mustFree = 0;
+    }
+}
+
+s_quick_result quickjs_callFunctionWithAnyValues(s_quick_ctx* pCtx, JSValue* fctToCall, int keepAlive) {
     JSValue args[pCtx->goToJsValuesCount];
     s_quick_anyValue anyValue;
     JSContext* ctx = pCtx->ctx;
+
+    s_quick_result result;
 
     for (int i=0;i<pCtx->goToJsValuesCount;i++) {
         anyValue = pCtx->goToJsValues[i];
@@ -300,7 +376,12 @@ s_quick_error* quickjs_callFunctionWithAnyValues(s_quick_ctx* pCtx, JSValue* fct
             case AnyValueTypeJson:
                 args[i] = JS_ParseJSON(ctx, (const char*)anyValue.voidPtr, anyValue.size, "");
                 s_quick_error *err = checkExecException(pCtx, args[i]);
-                if (err != NULL) return err;
+
+                if (err != NULL) {
+                    result.error = err;
+                    return result;
+                }
+
                 break;
 
             case AnyValueTypeNull:
@@ -321,7 +402,16 @@ s_quick_error* quickjs_callFunctionWithAnyValues(s_quick_ctx* pCtx, JSValue* fct
 
     JSValue jsRes = JS_Call(pCtx->ctx, *fctToCall, JS_UNDEFINED, pCtx->goToJsValuesCount, args);
     if (!keepAlive) quickjs_releaseFunction(pCtx, fctToCall);
-    return checkExecException(pCtx, jsRes);
+
+    if (!JS_IsException(jsRes)) {
+        result.error = NULL;
+        jsValueToAnyValue(ctx, jsRes, &result.returnValue);
+        JS_FreeValue(pCtx->ctx, jsRes);
+        return result;
+    }
+
+    result.error  = checkExecException(pCtx, jsRes);
+    return result;
 }
 
 s_quick_error* quickjs_callFunctionWithUndefined(s_quick_ctx* pCtx, JSValue* fctToCall, int keepAlive) {
@@ -339,6 +429,11 @@ s_quick_error* quickjs_callFunctionWithAutoReleaseResource2(s_quick_ctx* pCtx, J
     if (!keepAlive) quickjs_releaseFunction(pCtx, fctToCall);
 
     JS_FreeValue(pCtx->ctx, args[1]);
+
+    if (!JS_IsException(jsRes)) {
+
+    }
+
     return checkExecException(pCtx, jsRes);
 }
 
@@ -360,83 +455,8 @@ s_quick_ctx* quickjs_callParamsToAnyValue(JSContext *ctx, int argc, JSValueConst
     //
     pCtx->jsToGoValuesCount = argc;
 
-    int tag;
-
     for (int i=0;i<argc;i++) {
-        JSValueConst jsValue = argv[i];
-        s_quick_anyValue* anyValue = &values[i];
-        anyValue->mustFree = 0;
-
-        tag = jsValue.tag;
-
-        if (tag == JS_TAG_UNDEFINED) {
-            anyValue->valueType = AnyValueTypeUndefined;
-            continue;
-        }
-
-        if (tag == JS_TAG_NULL) {
-            anyValue->valueType = AnyValueTypeNull;
-            continue;
-        }
-
-        if (tag == JS_TAG_INT) {
-            anyValue->valueType = AnyValueTypeInt32;
-            anyValue->size = jsValue.u.int32;
-            continue;
-        }
-
-        if (tag == JS_TAG_FLOAT64) {
-            anyValue->valueType = AnyValueTypeNumber;
-            anyValue->number = jsValue.u.float64;
-            continue;
-        }
-
-        if (tag == JS_TAG_BOOL) {
-            anyValue->valueType = AnyValueTypeBoolean;
-            anyValue->size = jsValue.u.int32;
-            continue;
-        }
-
-        if (tag == JS_TAG_STRING) {
-            anyValue->valueType = AnyValueTypeString;
-            jsStringToCString(ctx, jsValue, anyValue);
-            continue;
-        }
-
-        if (tag == JS_TAG_OBJECT) {
-            if (JS_IsFunction(ctx, jsValue)) {
-                anyValue->valueType = AnyValueTypeFunction;
-                //
-                JSValue *valuePtr = (JSValue *) malloc(sizeof(JSValue));
-
-                // Must duplicate since this value will be automatically released by QuickJS.
-                // But most of the time it's used for async, so we must keep the ref ok.
-                //
-                // WARNING: the ref must be released manually once.
-                //          Is automatically done once the function is called.
-                //          Otherwise you have to do it manually.
-                //
-                *valuePtr = JS_DupValue(ctx, jsValue);
-                anyValue->voidPtr = valuePtr;
-                anyValue->mustFree = 1;
-            } else {
-                anyValue->valueType = AnyValueTypeJson;
-                //
-                jsValue = JS_JSONStringify(ctx, jsValue, JS_UNDEFINED, JS_UNDEFINED);
-                jsStringToCString(ctx, jsValue, anyValue);
-            }
-        }
-
-        size_t size;
-        uint8_t* buffer = JS_GetArrayBuffer(ctx, &size, jsValue);
-
-        if (buffer!=NULL) {
-            anyValue->valueType = AnyValueTypeBuffer;
-            anyValue->mustFree = 0;
-            anyValue->voidPtr = buffer;
-            anyValue->size = size;
-            anyValue->mustFree = 0;
-        }
+        jsValueToAnyValue(ctx, argv[i], &values[i]);
     }
 
     return pCtx;

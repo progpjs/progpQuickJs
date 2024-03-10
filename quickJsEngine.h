@@ -48,6 +48,7 @@ typedef struct s_quick_error {
     const char* errorStackTrace;
 } s_quick_error;
 
+
 typedef struct s_quick_ctx {
     int refCount;
     void* userData;
@@ -65,6 +66,11 @@ typedef struct s_quick_ctx {
     int goToJsValuesCount;
 
 } s_quick_ctx;
+
+typedef struct s_quick_result {
+    s_quick_anyValue returnValue;
+    s_quick_error* error;
+} s_quick_result;
 
 typedef void (*f_quickjs_OnContextDestroyed)(s_quick_ctx* ctx);
 typedef void (*f_quickjs_OnResourceReleased)(void* resource);
@@ -98,7 +104,7 @@ void quickjs_releaseFunction(s_quick_ctx* pCtx, JSValue* host);
 
 //region Calling functions
 
-s_quick_error* quickjs_callFunctionWithAnyValues(s_quick_ctx* pCtx, JSValue* fctToCall, int keepAlive);
+s_quick_result quickjs_callFunctionWithAnyValues(s_quick_ctx* pCtx, JSValue* fctToCall, int keepAlive);
 s_quick_error* quickjs_callFunctionWithUndefined(s_quick_ctx* pCtx, JSValue* fctToCall, int keepAlive);
 s_quick_error* quickjs_callFunctionWithAutoReleaseResource2(s_quick_ctx* pCtx, JSValue* fctToCall, int keepAlive, uintptr_t res);
 
