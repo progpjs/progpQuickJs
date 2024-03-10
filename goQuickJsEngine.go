@@ -344,6 +344,18 @@ func (m *JsFunction) doCallWith(values []any) AnyValue {
 	}
 
 	res := C.quickjs_callFunctionWithAnyValues(m.ctx.ptr, m.ptr, m.keepAlive)
+	runtime.KeepAlive(cOutputParams)
+
+	if m.comeFromAsyncCall {
+		m.comeFromAsyncCall = false
+
+		// Must be keep in the defer.
+		// Without that the call to cAnyValueToGoAnyValue will crash.
+		//
+		defer func() {
+			m.ctx.decrRef()
+		}()
+	}
 
 	if res.error != nil {
 		m.ctx.processError(res.error)
@@ -551,11 +563,6 @@ var cAnyValueTypeFunction = C.int(7)
 var cAnyValueTypeJson = C.int(8)
 var cAnyValueTypeInt32 = C.int(9)
 
-type AnyValue struct {
-	Type  C.int
-	Value any
-}
-
 var cInt1 = C.int(1)
 var cInt0 = C.int(0)
 
@@ -581,38 +588,38 @@ func cAnyValueToGoAnyValue(ctx *Context, isAsync bool, cAnyValue *C.s_quick_anyV
 	return AnyValue{Type: cAnyValueTypeUndefined}
 }
 
-//endregion
-
-//region JsToGoCall
-
-type JsToGoCall struct {
-	params []AnyValue
-	ctx    *Context
-	error  string
+type AnyValue struct {
+	Type  C.int
+	Value any
 }
 
-func (m JsToGoCall) AssertArgCount(count int) bool {
-	if len(m.params) < count {
-		m.error = fmt.Sprintf("call param error: %d argument expected", count)
-		return false
-	}
-
-	return true
-}
-
-func (m JsToGoCall) AssertIsFunction(paramOffset int) bool {
-	_, ok := m.params[paramOffset].Value.(*JsFunction)
+func (m AnyValue) AssertIsFunction() bool {
+	_, ok := m.Value.(*JsFunction)
 	return ok
 }
 
-func (m JsToGoCall) AssertIsInt(paramOffset int) bool {
-	_, ok := m.params[paramOffset].Value.(int)
+func (m AnyValue) AssertIsInt() bool {
+	_, ok := m.Value.(int)
 	return ok
 }
 
-func (m JsToGoCall) AsFunction(count int) *JsFunction {
-	f, ok := m.params[count].Value.(*JsFunction)
+func (m AnyValue) AssertIsFloat64() bool {
+	_, ok := m.Value.(float64)
+	return ok
+}
 
+func (m AnyValue) AssertIsBool() bool {
+	_, ok := m.Value.(bool)
+	return ok
+}
+
+func (m AnyValue) AssertIsByte() bool {
+	_, ok := m.Value.([]byte)
+	return ok
+}
+
+func (m AnyValue) AsFunction() *JsFunction {
+	f, ok := m.Value.(*JsFunction)
 	if ok {
 		return f
 	}
@@ -620,8 +627,43 @@ func (m JsToGoCall) AsFunction(count int) *JsFunction {
 	return nil
 }
 
-func (m JsToGoCall) AsInt(count int) int {
-	return m.params[count].Value.(int)
+func (m AnyValue) AsInt() int {
+	return m.Value.(int)
+}
+
+func (m AnyValue) AsFloat64() float64 {
+	return m.Value.(float64)
+}
+
+func (m AnyValue) AsBool() bool {
+	return m.Value.(bool)
+}
+
+func (m AnyValue) AsString() string {
+	return m.Value.(string)
+}
+
+func (m AnyValue) AsBuffer() []byte {
+	return m.Value.([]byte)
+}
+
+//endregion
+
+//region JsToGoCall
+
+type JsToGoCall struct {
+	Params []AnyValue
+	ctx    *Context
+	error  string
+}
+
+func (m JsToGoCall) AssertArgCount(count int) bool {
+	if len(m.Params) < count {
+		m.error = fmt.Sprintf("call param error: %d argument expected", count)
+		return false
+	}
+
+	return true
 }
 
 //endregion
@@ -664,7 +706,7 @@ func cgoCallDynamicFunction(functionId C.int, pCtx *C.s_quick_ctx, argc C.int) C
 		goCtx.incrRef()
 	}
 
-	call := JsToGoCall{ctx: goCtx, params: allAnyValues}
+	call := JsToGoCall{ctx: goCtx, Params: allAnyValues}
 	jsf.goFunction(&call)
 
 	if call.error != "" {
