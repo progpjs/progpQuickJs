@@ -335,16 +335,22 @@ func (m *JsFunction) CallSyncWith(values ...any) any {
 }
 
 func (m *JsFunction) doCallWith(values []any, decodeReturn bool) any {
-	m.ctx.ptr.lastOutputParamCount = C.int(len(values))
-	cOutputParams := m.ctx.ptr.outpuAnyValues
+	m.ctx.ptr.goToJsValuesCount = C.int(len(values))
+	cOutputParams := m.ctx.ptr.goToJsValues
 
 	for _, v := range values {
 		goValueToCAnyValue(v, cOutputParams)
-		cOutputParams = (*C.q_quick_anyValue)(unsafe.Add(unsafe.Pointer(cOutputParams), C.sizeof_q_quick_anyValue))
-
-		// TODO: faire l'appel et récupérer le résultat
+		cOutputParams = (*C.s_quick_anyValue)(unsafe.Add(unsafe.Pointer(cOutputParams), C.sizeof_s_quick_anyValue))
 	}
 
+	//TODO: obtenir une structure contenant errreur + réponse
+	err := C.quickjs_callFunctionWithAnyValues(m.ctx.ptr, m.ptr, m.keepAlive)
+
+	if err != nil {
+		m.ctx.processError(err)
+	}
+
+	// TODO: renvoyer la réponse.
 	return nil
 }
 
@@ -357,7 +363,7 @@ func (m *JsFunction) KeepAlive() {
 	}
 }
 
-func goValueToCAnyValue(goVal any, cAnyVal *C.q_quick_anyValue) {
+func goValueToCAnyValue(goVal any, cAnyVal *C.s_quick_anyValue) {
 	if goVal == nil {
 		cAnyVal.valueType = cAnyValueTypeUndefined
 		return
@@ -619,13 +625,13 @@ func cgoOnAutoDisposeResourceReleased(res unsafe.Pointer) {
 
 //export cgoCallDynamicFunction
 func cgoCallDynamicFunction(functionId C.int, pCtx *C.s_quick_ctx, argc C.int) C.JSValue {
-	inputAnyValues := pCtx.inputAnyValues
+	jsToGoValues := pCtx.jsToGoValues
 	goCtx := (*Context)(unsafe.Pointer(pCtx.userData))
 
 	count := int(argc)
 	jsf := gFunctionTable[int(functionId)]
 
-	cAnyValue := inputAnyValues
+	cAnyValue := jsToGoValues
 	var allAnyValues []AnyValue
 
 	for i := 0; i < count; i++ {
@@ -654,7 +660,7 @@ func cgoCallDynamicFunction(functionId C.int, pCtx *C.s_quick_ctx, argc C.int) C
 			allAnyValues = append(allAnyValues, v)
 		}
 
-		cAnyValue = (*C.q_quick_anyValue)(unsafe.Add(unsafe.Pointer(cAnyValue), C.sizeof_q_quick_anyValue))
+		cAnyValue = (*C.s_quick_anyValue)(unsafe.Add(unsafe.Pointer(cAnyValue), C.sizeof_s_quick_anyValue))
 	}
 
 	if jsf.isAsync {

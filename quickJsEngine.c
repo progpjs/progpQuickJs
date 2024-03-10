@@ -32,7 +32,7 @@ typedef struct s_quickJs_gcItem {
     s_quickJs_withHeader header;
 } s_quickJs_gcItem;
 
-static inline void jsStringToCString(JSContext *ctx, const JSValueConst jsValue, q_quick_anyValue* anyValue) {
+static inline void jsStringToCString(JSContext *ctx, const JSValueConst jsValue, s_quick_anyValue* anyValue) {
     s_quickJs_string* jsString = jsValue.u.ptr;
 
     if (jsString->is_wide_char) {
@@ -115,9 +115,9 @@ void quickjs_releaseError(s_quick_error* error) {
 
 //region Context
 
-void freeAnyValueList(JSContext *ctx, q_quick_anyValue* values, int maxCount) {
+void freeAnyValueList(JSContext *ctx, s_quick_anyValue* values, int maxCount) {
     for (int i=0;i<maxCount;i++) {
-        q_quick_anyValue* anyValue = &values[i];
+        s_quick_anyValue* anyValue = &values[i];
 
         if (anyValue->mustFree) {
             if (anyValue->valueType == JS_TAG_STRING) {
@@ -133,12 +133,12 @@ void disposeContext(s_quick_ctx* pCtx) {
         pCtx->hasException = false;
     }
 
-    if (pCtx->lastInputParamCount!=0) {
-        freeAnyValueList(pCtx->ctx, pCtx->inputAnyValues, pCtx->lastInputParamCount);
+    if (pCtx->jsToGoValuesCount!=0) {
+        freeAnyValueList(pCtx->ctx, pCtx->jsToGoValues, pCtx->jsToGoValuesCount);
     }
 
-    if (pCtx->lastOutputParamCount!=0) {
-        freeAnyValueList(pCtx->ctx, pCtx->outpuAnyValues, pCtx->lastOutputParamCount);
+    if (pCtx->goToJsValuesCount!=0) {
+        freeAnyValueList(pCtx->ctx, pCtx->goToJsValues, pCtx->goToJsValuesCount);
     }
 }
 
@@ -189,11 +189,11 @@ s_quick_ctx* quickjs_createContext(void *userData) {
     pCtx->hasException = false;
     pCtx->execException.pCtx = pCtx;
     //
-    pCtx->inputAnyValues = calloc(15, sizeof(q_quick_anyValue));
-    pCtx->lastInputParamCount = 0;
+    pCtx->jsToGoValues = calloc(15, sizeof(s_quick_anyValue));
+    pCtx->jsToGoValuesCount = 0;
     //
-    pCtx->outpuAnyValues = calloc(15, sizeof(q_quick_anyValue));
-    pCtx->lastOutputParamCount = 0;
+    pCtx->goToJsValues = calloc(15, sizeof(s_quick_anyValue));
+    pCtx->goToJsValuesCount = 0;
 
     // Allows to retrieve value.
     JS_SetContextOpaque(ctx, pCtx);
@@ -224,12 +224,12 @@ void quickjs_decrContext(s_quick_ctx* pCtx) {
         pCtx->hasException = false;
     }
 
-    if (pCtx->lastInputParamCount!=0) {
-        freeAnyValueList(pCtx->ctx, pCtx->inputAnyValues, pCtx->lastInputParamCount);
+    if (pCtx->jsToGoValuesCount!=0) {
+        freeAnyValueList(pCtx->ctx, pCtx->jsToGoValues, pCtx->jsToGoValuesCount);
     }
 
-    if (pCtx->lastOutputParamCount!=0) {
-        freeAnyValueList(pCtx->ctx, pCtx->outpuAnyValues, pCtx->lastOutputParamCount);
+    if (pCtx->goToJsValuesCount!=0) {
+        freeAnyValueList(pCtx->ctx, pCtx->goToJsValues, pCtx->goToJsValuesCount);
     }
 
     //s_quickJs_gcItem* gcItem = pCtx->ctx;
@@ -259,19 +259,84 @@ s_quick_error* quickjs_executeScript(s_quick_ctx* pCtx, const char* script, cons
 
 //region Calling functions
 
-s_quick_error* quickjs_callFunctionWithUndefined(s_quick_ctx* pCtx, JSValue* host, int keepAlive) {
-    JSValue jsRes = JS_Call(pCtx->ctx, *host, JS_UNDEFINED, 0, NULL);
-    if (!keepAlive) quickjs_releaseFunction(pCtx, host);
+void freeArrayBuffer(JSRuntime *rt, void *opaque, void *ptr) {
+    free(ptr);
+}
+
+s_quick_error* quickjs_callFunctionWithAnyValues(s_quick_ctx* pCtx, JSValue* fctToCall, int keepAlive) {
+    JSValue args[pCtx->goToJsValuesCount];
+    s_quick_anyValue anyValue;
+    JSContext* ctx = pCtx->ctx;
+
+    for (int i=0;i<pCtx->goToJsValuesCount;i++) {
+        anyValue = pCtx->goToJsValues[i];
+
+        switch (anyValue.valueType) {
+            case AnyValueTypeUndefined:
+                args[i] = JS_UNDEFINED;
+                break;
+
+            case AnyValueTypeNumber:
+                args[i] = JS_NewFloat64(ctx, anyValue.number);
+                break;
+
+            case AnyValueTypeInt32:
+                args[i] = JS_NewUint32(ctx, anyValue.size);
+                break;
+
+            case AnyValueTypeBoolean:
+                if (anyValue.size==1) args[i] = JS_TRUE;
+                else args[i] = JS_FALSE;
+                break;
+
+            case AnyValueTypeString:
+                args[i] = JS_NewStringLen(ctx, (const char*)anyValue.voidPtr, anyValue.size);
+                break;
+
+            case AnyValueTypeBuffer:
+                args[i] = JS_NewArrayBuffer(ctx, (uint8_t*)anyValue.voidPtr,  anyValue.size, freeArrayBuffer, NULL, false);
+                break;
+
+            case AnyValueTypeJson:
+                args[i] = JS_ParseJSON(ctx, (const char*)anyValue.voidPtr, anyValue.size, "");
+                s_quick_error *err = checkExecException(pCtx, args[i]);
+                if (err != NULL) return err;
+                break;
+
+            case AnyValueTypeNull:
+                args[i] = JS_NULL;
+                break;
+
+            case AnyValueTypeError:
+                args[i] = JS_NewStringLen(ctx, (const char*)anyValue.voidPtr, anyValue.size);
+                JS_Throw(ctx, args[i]);
+                JS_FreeValue(ctx, args[i]);
+                break;
+
+            default:
+                args[i] = JS_UNDEFINED;
+                break;
+        }
+    }
+
+    JSValue jsRes = JS_Call(pCtx->ctx, *fctToCall, JS_UNDEFINED, pCtx->goToJsValuesCount, args);
+    if (!keepAlive) quickjs_releaseFunction(pCtx, fctToCall);
     return checkExecException(pCtx, jsRes);
 }
 
-s_quick_error* quickjs_callFunctionWithAutoReleaseResource2(s_quick_ctx* pCtx, JSValue* host, int keepAlive, uintptr_t res) {
+s_quick_error* quickjs_callFunctionWithUndefined(s_quick_ctx* pCtx, JSValue* fctToCall, int keepAlive) {
+    JSValue jsRes = JS_Call(pCtx->ctx, *fctToCall, JS_UNDEFINED, 0, NULL);
+    if (!keepAlive) quickjs_releaseFunction(pCtx, fctToCall);
+    return checkExecException(pCtx, jsRes);
+}
+
+s_quick_error* quickjs_callFunctionWithAutoReleaseResource2(s_quick_ctx* pCtx, JSValue* fctToCall, int keepAlive, uintptr_t res) {
     JSValue args[2];
     args[0] = JS_UNDEFINED;
     args[1] = quickjs_newAutoReleaseResource(pCtx, (void*)res);
 
-    JSValue jsRes = JS_Call(pCtx->ctx, *host, JS_UNDEFINED, 2, args);
-    if (!keepAlive) quickjs_releaseFunction(pCtx, host);
+    JSValue jsRes = JS_Call(pCtx->ctx, *fctToCall, JS_UNDEFINED, 2, args);
+    if (!keepAlive) quickjs_releaseFunction(pCtx, fctToCall);
 
     JS_FreeValue(pCtx->ctx, args[1]);
     return checkExecException(pCtx, jsRes);
@@ -287,19 +352,20 @@ void quickjs_bindFunction(s_quick_ctx* pCtx, const char* functionName, int minAr
 
 s_quick_ctx* quickjs_callParamsToAnyValue(JSContext *ctx, int argc, JSValueConst *argv) {
     s_quick_ctx* pCtx = (s_quick_ctx*)JS_GetContextOpaque(ctx);
-    q_quick_anyValue* values = pCtx->inputAnyValues;
+    s_quick_anyValue* values = pCtx->jsToGoValues;
 
-    if (pCtx->lastInputParamCount!=0) {
-        freeAnyValueList(ctx, pCtx->inputAnyValues, pCtx->lastInputParamCount);
+    if (pCtx->jsToGoValuesCount!=0) {
+        freeAnyValueList(ctx, pCtx->jsToGoValues, pCtx->jsToGoValuesCount);
     }
     //
-    pCtx->lastInputParamCount = argc;
+    pCtx->jsToGoValuesCount = argc;
 
     int tag;
 
     for (int i=0;i<argc;i++) {
         JSValueConst jsValue = argv[i];
-        q_quick_anyValue* anyValue = &values[i];
+        s_quick_anyValue* anyValue = &values[i];
+        anyValue->mustFree = 0;
 
         tag = jsValue.tag;
 
@@ -352,7 +418,7 @@ s_quick_ctx* quickjs_callParamsToAnyValue(JSContext *ctx, int argc, JSValueConst
                 //
                 *valuePtr = JS_DupValue(ctx, jsValue);
                 anyValue->voidPtr = valuePtr;
-                anyValue->mustFree = 0;
+                anyValue->mustFree = 1;
             } else {
                 anyValue->valueType = AnyValueTypeJson;
                 //
@@ -372,7 +438,6 @@ s_quick_ctx* quickjs_callParamsToAnyValue(JSContext *ctx, int argc, JSValueConst
             anyValue->mustFree = 0;
         }
     }
-
 
     return pCtx;
 }

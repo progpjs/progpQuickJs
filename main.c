@@ -55,7 +55,21 @@ static JSValue js_receiveFunction(JSContext *ctx, JSValueConst this_val, int arg
 }
 
 static JSValue js_test(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv) {
-    //JS_Throw()
+    JSValue fct = argv[0];
+
+    argv[0] = JS_UNDEFINED;
+    s_quick_ctx* pCtx = quickjs_callParamsToAnyValue(ctx, argc, argv);
+    argv[0] = fct;
+
+    pCtx->jsToGoValuesCount = 0;
+    pCtx->goToJsValuesCount = argc;
+
+    for (int i=0;i<argc;i++) {
+        pCtx->goToJsValues[i] = pCtx->jsToGoValues[i];
+    }
+
+    quickjs_callFunctionWithAnyValues(pCtx, &fct, 1);
+
     return JS_UNDEFINED;
 }
 

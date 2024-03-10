@@ -22,7 +22,7 @@
 #define AnyValueTypeJson        8
 #define AnyValueTypeInt32       9
 
-typedef struct q_quick_anyValue {
+typedef struct s_quick_anyValue {
     int valueType;
     double number;
     void* voidPtr;
@@ -38,7 +38,7 @@ typedef struct q_quick_anyValue {
     // Allows knowing if the value voidPtr must be free.
     //
     int mustFree;
-} q_quick_anyValue;
+} s_quick_anyValue;
 
 typedef struct s_quick_ctx s_quick_ctx;
 
@@ -58,11 +58,11 @@ typedef struct s_quick_ctx {
     bool hasException;
     s_quick_error execException;
 
-    q_quick_anyValue* inputAnyValues;
-    int lastInputParamCount;
+    s_quick_anyValue* jsToGoValues;
+    int jsToGoValuesCount;
 
-    q_quick_anyValue* outpuAnyValues;
-    int lastOutputParamCount;
+    s_quick_anyValue* goToJsValues;
+    int goToJsValuesCount;
 
 } s_quick_ctx;
 
@@ -98,8 +98,9 @@ void quickjs_releaseFunction(s_quick_ctx* pCtx, JSValue* host);
 
 //region Calling functions
 
-s_quick_error* quickjs_callFunctionWithUndefined(s_quick_ctx* pCtx, JSValue* host, int keepAlive);
-s_quick_error* quickjs_callFunctionWithAutoReleaseResource2(s_quick_ctx* pCtx, JSValue* host, int keepAlive, uintptr_t res);
+s_quick_error* quickjs_callFunctionWithAnyValues(s_quick_ctx* pCtx, JSValue* fctToCall, int keepAlive);
+s_quick_error* quickjs_callFunctionWithUndefined(s_quick_ctx* pCtx, JSValue* fctToCall, int keepAlive);
+s_quick_error* quickjs_callFunctionWithAutoReleaseResource2(s_quick_ctx* pCtx, JSValue* fctToCall, int keepAlive, uintptr_t res);
 
 //endregion
 
