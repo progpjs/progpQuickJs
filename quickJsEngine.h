@@ -48,7 +48,6 @@ typedef struct s_quick_error {
     const char* errorStackTrace;
 } s_quick_error;
 
-
 typedef struct s_quick_ctx {
     int refCount;
     void* userData;
@@ -92,6 +91,8 @@ void quickjs_decrContext(s_quick_ctx* pCtx);
 
 s_quick_error* quickjs_executeScript(s_quick_ctx* pCtx, const char* script, const char* origin);
 void quickjs_bindFunction(s_quick_ctx* pCtx, const char* functionName, int minArgCount, JSCFunction fct);
+
+JSValue quickjs_anyValueToJsValue(s_quick_ctx *pCtx, const s_quick_anyValue anyValue, bool* error);
 
 //endregion
 

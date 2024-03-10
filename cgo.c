@@ -11,7 +11,12 @@ void quickjs_cgoInitialize() {
 
 JSValue callDynamicFunctionWith(int fctId, JSContext *ctx, int argc, JSValueConst *argv) {
     s_quick_ctx* pCtx = quickjs_callParamsToAnyValue(ctx, argc, argv);
-    return cgoCallDynamicFunction(fctId, pCtx, argc);
+    s_quick_anyValue anyValue = cgoCallDynamicFunction(fctId, pCtx, argc);
+
+    bool error = false;
+    JSValue jsv = quickjs_anyValueToJsValue(pCtx, anyValue, &error);
+    if (error) JS_Throw(pCtx->ctx, jsv);
+    return jsv;
 }
 
 static JSValue jsDynamicFunction0(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv) { return callDynamicFunctionWith(0, ctx, argc, argv); }

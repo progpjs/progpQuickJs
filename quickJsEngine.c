@@ -32,21 +32,6 @@ typedef struct s_quickJs_gcItem {
     s_quickJs_withHeader header;
 } s_quickJs_gcItem;
 
-static inline void jsStringToCString(JSContext *ctx, const JSValueConst jsValue, s_quick_anyValue* anyValue) {
-    s_quickJs_string* jsString = jsValue.u.ptr;
-
-    if (jsString->is_wide_char) {
-        const char* cString1 = JS_ToCString(ctx, jsValue);
-        const char* cString2 = strdup(cString1);
-        JS_FreeCString(ctx, cString1);
-        anyValue->voidPtr = (void*)cString2;
-        anyValue->mustFree = 1;
-    } else {
-        anyValue->voidPtr = (void*)jsString->u.str8;
-        anyValue->mustFree = 0;
-    }
-}
-
 //endregion
 
 //region Config
@@ -257,10 +242,25 @@ s_quick_error* quickjs_executeScript(s_quick_ctx* pCtx, const char* script, cons
 
 //endregion
 
-//region Calling functions
+//region Any Values
 
-void freeArrayBuffer(JSRuntime *rt, void *opaque, void *ptr) {
+static void freeArrayBuffer(JSRuntime *rt, void *opaque, void *ptr) {
     free(ptr);
+}
+
+static inline void jsStringToCString(JSContext *ctx, const JSValueConst jsValue, s_quick_anyValue* anyValue) {
+    s_quickJs_string* jsString = jsValue.u.ptr;
+
+    if (jsString->is_wide_char) {
+        const char* cString1 = JS_ToCString(ctx, jsValue);
+        const char* cString2 = strdup(cString1);
+        JS_FreeCString(ctx, cString1);
+        anyValue->voidPtr = (void*)cString2;
+        anyValue->mustFree = 1;
+    } else {
+        anyValue->voidPtr = (void*)jsString->u.str8;
+        anyValue->mustFree = 0;
+    }
 }
 
 void jsValueToAnyValue(JSContext *ctx, const JSValueConst jsValue, s_quick_anyValue* anyValue) {
@@ -337,79 +337,57 @@ void jsValueToAnyValue(JSContext *ctx, const JSValueConst jsValue, s_quick_anyVa
     }
 }
 
+JSValue quickjs_anyValueToJsValue(s_quick_ctx *pCtx, const s_quick_anyValue anyValue, bool* error) {
+    switch (anyValue.valueType) {
+        case AnyValueTypeUndefined: return JS_UNDEFINED;
+        case AnyValueTypeNumber: return JS_NewFloat64(pCtx->ctx, anyValue.number);
+        case AnyValueTypeInt32: return JS_NewUint32(pCtx->ctx, anyValue.size);
+        case AnyValueTypeBoolean: if (anyValue.size == 1) return JS_TRUE; else return JS_FALSE;
+        case AnyValueTypeString: return JS_NewStringLen(pCtx->ctx, (const char *) anyValue.voidPtr, anyValue.size);
+        case AnyValueTypeNull: return JS_NULL;
+
+        case AnyValueTypeBuffer: {
+            uint8_t *buffer = malloc(anyValue.size);
+            memcpy(buffer, anyValue.voidPtr, anyValue.size);
+            return JS_NewArrayBuffer(pCtx->ctx, buffer, anyValue.size, freeArrayBuffer, NULL, false);
+        }
+
+        case AnyValueTypeJson: {
+            JSValue jsv = JS_ParseJSON(pCtx->ctx, (const char *) anyValue.voidPtr, anyValue.size, "");
+            if (JS_IsException(jsv)) *error = true;
+            return jsv;
+        }
+
+        case AnyValueTypeError: {
+            JSValue jsv = JS_NewStringLen(pCtx->ctx, (const char *) anyValue.voidPtr, anyValue.size);
+            JS_Throw(pCtx->ctx, jsv);
+            JS_FreeValue(pCtx->ctx, jsv);
+            return jsv;
+        }
+
+        default: return JS_UNDEFINED;
+    }
+}
+
+//endregion
+
+//region Calling functions
+
 s_quick_result quickjs_callFunctionWithAnyValues(s_quick_ctx* pCtx, JSValue* fctToCall, int keepAlive) {
     int maxCount = pCtx->goToJsValuesCount;
     JSValue args[maxCount];
-    s_quick_anyValue anyValue;
     JSContext* ctx = pCtx->ctx;
 
     s_quick_result result;
+    bool error = false;
 
     for (int i=0;i<maxCount;i++) {
-        anyValue = pCtx->goToJsValues[i];
+        args[i] = quickjs_anyValueToJsValue(pCtx, pCtx->goToJsValues[i], &error);
 
-        switch (anyValue.valueType) {
-            case AnyValueTypeUndefined: {
-                args[i] = JS_UNDEFINED;
-                break;
-            }
-
-            case AnyValueTypeNumber: {
-                args[i] = JS_NewFloat64(ctx, anyValue.number);
-                break;
-            }
-
-            case AnyValueTypeInt32: {
-                args[i] = JS_NewUint32(ctx, anyValue.size);
-                break;
-            }
-
-            case AnyValueTypeBoolean: {
-                if (anyValue.size == 1) args[i] = JS_TRUE;
-                else args[i] = JS_FALSE;
-                break;
-            }
-
-            case AnyValueTypeString: {
-                args[i] = JS_NewStringLen(ctx, (const char *) anyValue.voidPtr, anyValue.size);
-                break;
-            }
-
-            case AnyValueTypeBuffer: {
-                uint8_t *buffer = malloc(anyValue.size);
-                memcpy(buffer, anyValue.voidPtr, anyValue.size);
-                args[i] = JS_NewArrayBuffer(ctx, buffer, anyValue.size, freeArrayBuffer, NULL, false);
-                break;
-            }
-
-            case AnyValueTypeJson: {
-                args[i] = JS_ParseJSON(ctx, (const char *) anyValue.voidPtr, anyValue.size, "");
-                s_quick_error *err = checkExecException(pCtx, args[i]);
-
-                if (err != NULL) {
-                    result.error = err;
-                    return result;
-                }
-
-                break;
-            }
-
-            case AnyValueTypeNull: {
-                args[i] = JS_NULL;
-                break;
-            }
-
-            case AnyValueTypeError: {
-                args[i] = JS_NewStringLen(ctx, (const char *) anyValue.voidPtr, anyValue.size);
-                JS_Throw(ctx, args[i]);
-                JS_FreeValue(ctx, args[i]);
-                break;
-            }
-
-            default: {
-                args[i] = JS_UNDEFINED;
-                break;
-            }
+        if (error) {
+            result.error = checkExecException(pCtx, args[i]);
+            for (int j=0;i<=j;j++) JS_FreeValue(ctx, args[j]);
+            return result;
         }
     }
 

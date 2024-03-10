@@ -3,6 +3,7 @@ package jsQuickJs
 import "C"
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"runtime"
 	"strconv"
@@ -374,72 +375,6 @@ func (m *JsFunction) KeepAlive() {
 	}
 }
 
-func goValueToCAnyValue(goVal any, cAnyVal *C.s_quick_anyValue) {
-	if goVal == nil {
-		cAnyVal.valueType = cAnyValueTypeUndefined
-		return
-	}
-
-	if asInt, ok := goVal.(int); ok {
-		cAnyVal.valueType = cAnyValueTypeNumber
-		cAnyVal.number = C.double(float64(asInt))
-		return
-	}
-
-	if asFloat, ok := goVal.(float64); ok {
-		cAnyVal.valueType = cAnyValueTypeNumber
-		cAnyVal.number = C.double(asFloat)
-		return
-	}
-
-	if asBool, ok := goVal.(bool); ok {
-		cAnyVal.valueType = cAnyValueTypeBoolean
-
-		if asBool {
-			cAnyVal.size = cInt1
-		} else {
-			cAnyVal.size = cInt0
-		}
-
-		return
-	}
-
-	if asString, ok := goVal.(string); ok {
-		cAnyVal.valueType = cAnyValueTypeString
-		cAnyVal.voidPtr = unsafe.Pointer(C.CString(asString))
-		cAnyVal.size = C.int(len(asString))
-		return
-	}
-
-	if asBuffer, ok := goVal.([]byte); ok {
-		cAnyVal.valueType = cAnyValueTypeBuffer
-		cAnyVal.voidPtr = unsafe.Pointer(unsafe.Pointer(&asBuffer[0]))
-		cAnyVal.size = C.int(len(asBuffer))
-		return
-	}
-
-	if asError, ok := goVal.(error); ok {
-		asString := asError.Error()
-		cAnyVal.valueType = cAnyValueTypeError
-		cAnyVal.voidPtr = unsafe.Pointer(C.CString(asString))
-		cAnyVal.size = C.int(len(asString))
-	}
-
-	bAsJson, err := json.Marshal(goVal)
-
-	if err != nil {
-		cAnyVal.valueType = cAnyValueTypeJson
-		cAnyVal.voidPtr = unsafe.Pointer(&bAsJson[0])
-		cAnyVal.size = C.int(len(bAsJson))
-		return
-	}
-
-	asString := err.Error()
-	cAnyVal.valueType = cAnyValueTypeError
-	cAnyVal.voidPtr = unsafe.Pointer(C.CString(asString))
-	cAnyVal.size = C.int(len(asString))
-}
-
 //endregion
 
 //region Tracked Resources
@@ -588,6 +523,77 @@ func cAnyValueToGoAnyValue(ctx *Context, isAsync bool, cAnyValue *C.s_quick_anyV
 	return AnyValue{Type: cAnyValueTypeUndefined}
 }
 
+func goValueToCAnyValue(goVal any, cAnyVal *C.s_quick_anyValue) {
+	cAnyVal.mustFree = cInt0
+
+	if goVal == nil {
+		cAnyVal.valueType = cAnyValueTypeUndefined
+		return
+	}
+
+	if asInt, ok := goVal.(int); ok {
+		cAnyVal.valueType = cAnyValueTypeNumber
+		cAnyVal.number = C.double(float64(asInt))
+		return
+	}
+
+	if asFloat, ok := goVal.(float64); ok {
+		cAnyVal.valueType = cAnyValueTypeNumber
+		cAnyVal.number = C.double(asFloat)
+		return
+	}
+
+	if asBool, ok := goVal.(bool); ok {
+		cAnyVal.valueType = cAnyValueTypeBoolean
+
+		if asBool {
+			cAnyVal.size = cInt1
+		} else {
+			cAnyVal.size = cInt0
+		}
+
+		return
+	}
+
+	if asString, ok := goVal.(string); ok {
+		cAnyVal.valueType = cAnyValueTypeString
+		cAnyVal.voidPtr = unsafe.Pointer(C.CString(asString))
+		cAnyVal.size = C.int(len(asString))
+		cAnyVal.mustFree = cInt1
+		return
+	}
+
+	if asBuffer, ok := goVal.([]byte); ok {
+		cAnyVal.valueType = cAnyValueTypeBuffer
+		cAnyVal.voidPtr = unsafe.Pointer(&asBuffer[0])
+		cAnyVal.size = C.int(len(asBuffer))
+		return
+	}
+
+	if asError, ok := goVal.(error); ok {
+		asString := asError.Error()
+		cAnyVal.valueType = cAnyValueTypeError
+		cAnyVal.voidPtr = unsafe.Pointer(C.CString(asString))
+		cAnyVal.size = C.int(len(asString))
+		cAnyVal.mustFree = cInt1
+		return
+	}
+
+	bAsJson, err := json.Marshal(goVal)
+
+	if err != nil {
+		cAnyVal.valueType = cAnyValueTypeJson
+		cAnyVal.voidPtr = unsafe.Pointer(&bAsJson[0])
+		cAnyVal.size = C.int(len(bAsJson))
+	}
+
+	asString := string(bAsJson)
+	cAnyVal.valueType = cAnyValueTypeString
+	cAnyVal.voidPtr = unsafe.Pointer(C.CString(asString))
+	cAnyVal.size = C.int(len(asString))
+	cAnyVal.mustFree = cInt1
+}
+
 type AnyValue struct {
 	Type  C.int
 	Value any
@@ -657,7 +663,7 @@ type JsToGoCall struct {
 	error  string
 }
 
-func (m JsToGoCall) AssertArgCount(count int) bool {
+func (m *JsToGoCall) AssertArgCount(count int) bool {
 	if len(m.Params) < count {
 		m.error = fmt.Sprintf("call param error: %d argument expected", count)
 		return false
@@ -687,7 +693,7 @@ func cgoOnAutoDisposeResourceReleased(res unsafe.Pointer) {
 }
 
 //export cgoCallDynamicFunction
-func cgoCallDynamicFunction(functionId C.int, pCtx *C.s_quick_ctx, argc C.int) C.JSValue {
+func cgoCallDynamicFunction(functionId C.int, pCtx *C.s_quick_ctx, argc C.int) C.s_quick_anyValue {
 	jsToGoValues := pCtx.jsToGoValues
 	goCtx := (*Context)(unsafe.Pointer(pCtx.userData))
 
@@ -709,11 +715,15 @@ func cgoCallDynamicFunction(functionId C.int, pCtx *C.s_quick_ctx, argc C.int) C
 	call := JsToGoCall{ctx: goCtx, Params: allAnyValues}
 	jsf.goFunction(&call)
 
+	var cResult C.s_quick_anyValue
+
 	if call.error != "" {
-		// TODO
+		goValueToCAnyValue(errors.New(call.error), &cResult)
+	} else {
+		cResult.valueType = cAnyValueTypeUndefined
 	}
 
-	return C.JS_UNDEFINED
+	return cResult
 }
 
 //endregion
