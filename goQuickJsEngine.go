@@ -581,14 +581,17 @@ func goValueToCAnyValue(goVal any, cAnyVal *C.s_quick_anyValue) {
 
 	bAsJson, err := json.Marshal(goVal)
 
-	if err != nil {
+	if err == nil {
 		cAnyVal.valueType = cAnyValueTypeJson
-		cAnyVal.voidPtr = unsafe.Pointer(&bAsJson[0])
+		cAnyVal.voidPtr = unsafe.Pointer(C.CString(string(bAsJson)))
 		cAnyVal.size = C.int(len(bAsJson))
+		return
 	}
 
+	// > Error
+
 	asString := string(bAsJson)
-	cAnyVal.valueType = cAnyValueTypeString
+	cAnyVal.valueType = cAnyValueTypeError
 	cAnyVal.voidPtr = unsafe.Pointer(C.CString(asString))
 	cAnyVal.size = C.int(len(asString))
 	cAnyVal.mustFree = cInt1
@@ -654,6 +657,14 @@ func (m AnyValue) AsBuffer() []byte {
 }
 
 func (m AnyValue) AsAny() any {
+	if m.Type == cAnyValueTypeJson {
+		if s, ok := m.Value.(string); ok {
+			var myMap map[string]any
+			_ = json.Unmarshal([]byte(s), &myMap)
+			m.Value = myMap
+		}
+	}
+
 	return m.Value
 }
 
@@ -678,7 +689,7 @@ func (m *JsToGoCall) AssertArgCount(count int) bool {
 
 func (m *JsToGoCall) SetReturnValue(value any) {
 	if av, ok := value.(AnyValue); ok {
-		value = av.Value
+		value = av.AsAny()
 	}
 
 	m.returnValue = value
