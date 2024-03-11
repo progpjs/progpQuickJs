@@ -367,7 +367,7 @@ void jsValueToAnyValue(JSContext *ctx, const JSValueConst jsValue, s_quick_anyVa
     }
 }
 
-JSValue quickjs_anyValueToJsValue(s_quick_ctx *pCtx, const s_quick_anyValue anyValue, bool* error) {
+JSValue quickjs_anyValueToJsValue(s_quick_ctx *pCtx, s_quick_anyValue anyValue, bool* error) {
     switch (anyValue.valueType) {
         case AnyValueTypeUndefined: return JS_UNDEFINED;
         case AnyValueTypeNumber: return JS_NewFloat64(pCtx->ctx, anyValue.number);
@@ -379,6 +379,7 @@ JSValue quickjs_anyValueToJsValue(s_quick_ctx *pCtx, const s_quick_anyValue anyV
         case AnyValueTypeBuffer: {
             uint8_t *buffer = malloc(anyValue.size);
             memcpy(buffer, anyValue.voidPtr, anyValue.size);
+            // Here buffer is a copy of the Go one, so we must free it.
             return JS_NewArrayBuffer(pCtx->ctx, buffer, anyValue.size, freeArrayBuffer, NULL, false);
         }
 
@@ -501,11 +502,19 @@ JSValue quickjs_newAutoReleaseResource(s_quick_ctx* pCtx, void* value) {
 }
 
 JSValue quickjs_processExternalFunctionCallResult(s_quick_ctx* pCtx, s_quick_anyValue anyValueFromGo) {
-    DEBUG_PRINT("quickjs_processExternalFunctionCallResult / d1");
     bool error = false;
     JSValue jsv = quickjs_anyValueToJsValue(pCtx, anyValueFromGo, &error);
     if (anyValueFromGo.mustFree) releaseAnyValue_fromGo(pCtx->ctx, &anyValueFromGo);
     if (error) return JS_Throw(pCtx->ctx, jsv);
-    DEBUG_PRINT("quickjs_processExternalFunctionCallResult / d2");
     return jsv;
+}
+
+void* quickjs_copyBuffer(void* buffer, int size) {
+    void* newBuffer = malloc(size);
+    memcpy(newBuffer, buffer, size);
+    return newBuffer;
+}
+
+void* quickjs_convertPointer(void* ptr) {
+    return ptr;
 }

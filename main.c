@@ -61,7 +61,7 @@ static JSValue js_test(JSContext *ctx, JSValueConst this_val, int argc, JSValueC
 
     s_quick_anyValue err;
     err.valueType = AnyValueTypeError;
-    err.voidPtr = str;
+    err.voidPtr = (void*)str;
     err.size = strlen(str);
     err.mustFree = true;
 
