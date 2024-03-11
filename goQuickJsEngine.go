@@ -673,13 +673,13 @@ func (m AnyValue) AsAny() any {
 //region JsToGoCall
 
 type JsToGoCall struct {
-	Params      []AnyValue
+	Args        []AnyValue
 	ctx         *Context
 	returnValue any
 }
 
 func (m *JsToGoCall) AssertArgCount(count int) bool {
-	if len(m.Params) < count {
+	if len(m.Args) < count {
 		m.returnValue = errors.New(fmt.Sprintf("call param error: %d argument expected", count))
 		return false
 	}
@@ -735,7 +735,7 @@ func cgoCallDynamicFunction(functionId C.int, pCtx *C.s_quick_ctx, argc C.int) C
 		goCtx.incrRef()
 	}
 
-	call := JsToGoCall{ctx: goCtx, Params: allAnyValues}
+	call := JsToGoCall{ctx: goCtx, Args: allAnyValues}
 	jsf.goFunction(&call)
 
 	var cResult C.s_quick_anyValue
