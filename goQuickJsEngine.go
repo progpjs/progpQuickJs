@@ -323,7 +323,7 @@ func (m *JsFunction) CallWithAsync(values ...any) {
 	}
 
 	m.ctx.taskQueue.Push(func() {
-		m.doCallWith(values)
+		m.doCallWith(values, false)
 	})
 }
 
@@ -332,10 +332,10 @@ func (m *JsFunction) CallWith(values ...any) AnyValue {
 		return AnyValue{Type: cAnyValueTypeUndefined}
 	}
 
-	return m.doCallWith(values)
+	return m.doCallWith(values, true)
 }
 
-func (m *JsFunction) doCallWith(values []any) AnyValue {
+func (m *JsFunction) doCallWith(values []any, sendErrorToJavascript bool) AnyValue {
 	m.ctx.ptr.goToJsValuesCount = C.int(len(values))
 	cOutputParams := m.ctx.ptr.goToJsValues
 
@@ -359,8 +359,16 @@ func (m *JsFunction) doCallWith(values []any) AnyValue {
 	}
 
 	if res.error != nil {
-		m.ctx.processError(res.error)
-		return AnyValue{Type: cAnyValueTypeUndefined}
+		if sendErrorToJavascript {
+			// Here the error can be try/catch from javascript.
+			// But we can't have the stacktrace, only the title.
+			//
+			return AnyValue{Type: cAnyValueTypeError, Value: errors.New(C.GoString(res.error.errorTitle))}
+		} else {
+			// Here Go process the error and print the stacktrace.
+			// It's must be used if the function isn't intended to be call from javascript directly.
+			m.ctx.processError(res.error)
+		}
 	}
 
 	return cAnyValueToGoAnyValue(m.ctx, false, &res.returnValue)
