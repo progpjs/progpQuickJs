@@ -235,6 +235,7 @@ typedef struct s_quickJs_string {
 } s_quickJs_string;
 
 static void freeArrayBuffer(JSRuntime *rt, void *opaque, void *ptr) {
+    //DEBUG_PRINT("freeArrayBuffer / free buffer");
     free(ptr);
 }
 
@@ -367,31 +368,39 @@ void jsValueToAnyValue(JSContext *ctx, const JSValueConst jsValue, s_quick_anyVa
     }
 }
 
-JSValue quickjs_anyValueToJsValue(s_quick_ctx *pCtx, s_quick_anyValue anyValue, bool* error) {
-    switch (anyValue.valueType) {
+JSValue quickjs_anyValueToJsValue(s_quick_ctx *pCtx, const s_quick_anyValue *anyValue, bool* error) {
+    switch (anyValue->valueType) {
         case AnyValueTypeUndefined: return JS_UNDEFINED;
-        case AnyValueTypeNumber: return JS_NewFloat64(pCtx->ctx, anyValue.number);
-        case AnyValueTypeInt32: return JS_NewUint32(pCtx->ctx, anyValue.size);
-        case AnyValueTypeBoolean: if (anyValue.size == 1) return JS_TRUE; else return JS_FALSE;
-        case AnyValueTypeString: return JS_NewStringLen(pCtx->ctx, (const char *) anyValue.voidPtr, anyValue.size);
+        case AnyValueTypeNumber: return JS_NewFloat64(pCtx->ctx, anyValue->number);
+        case AnyValueTypeInt32: return JS_NewUint32(pCtx->ctx, anyValue->size);
+        case AnyValueTypeBoolean: if (anyValue->size == 1) return JS_TRUE; else return JS_FALSE;
+        case AnyValueTypeString: return JS_NewStringLen(pCtx->ctx, (const char *) anyValue->voidPtr, anyValue->size);
         case AnyValueTypeNull: return JS_NULL;
 
         case AnyValueTypeBuffer: {
-            uint8_t *buffer = malloc(anyValue.size);
-            memcpy(buffer, anyValue.voidPtr, anyValue.size);
-            // Here buffer is a copy of the Go one, so we must free it.
-            return JS_NewArrayBuffer(pCtx->ctx, buffer, anyValue.size, freeArrayBuffer, NULL, false);
+            uint8_t *buffer;
+
+            if (anyValue->mustFree==1) {
+                buffer = anyValue->voidPtr;
+            } else {
+                DEBUG_PRINT("quickjs_anyValueToJsValue / copy buffer - b");
+                // Avoid creating a copy if it's already a copy.
+                buffer = malloc(anyValue->size);
+                memcpy(buffer, anyValue->voidPtr, anyValue->size);
+            }
+
+            return JS_NewArrayBuffer(pCtx->ctx, buffer, anyValue->size, freeArrayBuffer, NULL, false);
         }
 
         case AnyValueTypeJson: {
-            JSValue jsv = JS_ParseJSON(pCtx->ctx, (const char *) anyValue.voidPtr, anyValue.size, "");
+            JSValue jsv = JS_ParseJSON(pCtx->ctx, (const char *) anyValue->voidPtr, anyValue->size, "");
             if (JS_IsException(jsv)) *error = true;
             return jsv;
         }
 
         case AnyValueTypeError: {
             *error = true;
-            return JS_NewStringLen(pCtx->ctx, (const char *) anyValue.voidPtr, anyValue.size);
+            return JS_NewStringLen(pCtx->ctx, (const char *) anyValue->voidPtr, anyValue->size);
         }
 
         default: return JS_UNDEFINED;
@@ -411,7 +420,7 @@ s_quick_result quickjs_callFunctionWithAnyValues(s_quick_ctx* pCtx, JSValue* fct
     bool error = false;
 
     for (int i=0;i<maxCount;i++) {
-        args[i] = quickjs_anyValueToJsValue(pCtx, pCtx->goToJsValues[i], &error);
+        args[i] = quickjs_anyValueToJsValue(pCtx, &pCtx->goToJsValues[i], &error);
 
         if (error) {
             result.error = checkExecException(pCtx, args[i]);
@@ -503,8 +512,10 @@ JSValue quickjs_newAutoReleaseResource(s_quick_ctx* pCtx, void* value) {
 
 JSValue quickjs_processExternalFunctionCallResult(s_quick_ctx* pCtx, s_quick_anyValue anyValueFromGo) {
     bool error = false;
-    JSValue jsv = quickjs_anyValueToJsValue(pCtx, anyValueFromGo, &error);
+
+    JSValue jsv = quickjs_anyValueToJsValue(pCtx, &anyValueFromGo, &error);
     if (anyValueFromGo.mustFree) releaseAnyValue_fromGo(pCtx->ctx, &anyValueFromGo);
+
     if (error) return JS_Throw(pCtx->ctx, jsv);
     return jsv;
 }
@@ -513,8 +524,4 @@ void* quickjs_copyBuffer(void* buffer, int size) {
     void* newBuffer = malloc(size);
     memcpy(newBuffer, buffer, size);
     return newBuffer;
-}
-
-void* quickjs_convertPointer(void* ptr) {
-    return ptr;
 }

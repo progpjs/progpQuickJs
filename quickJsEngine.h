@@ -92,7 +92,7 @@ void quickjs_decrContext(s_quick_ctx* pCtx);
 s_quick_error* quickjs_executeScript(s_quick_ctx* pCtx, const char* script, const char* origin);
 void quickjs_bindFunction(s_quick_ctx* pCtx, const char* functionName, int minArgCount, JSCFunction fct);
 
-JSValue quickjs_anyValueToJsValue(s_quick_ctx *pCtx, s_quick_anyValue anyValue, bool* error);
+JSValue quickjs_anyValueToJsValue(s_quick_ctx *pCtx, const s_quick_anyValue *anyValue, bool* error);
 
 //endregion
 
@@ -118,7 +118,5 @@ JSValue quickjs_newAutoReleaseResource(s_quick_ctx* pCtx, void* value);
 JSValue quickjs_processExternalFunctionCallResult(s_quick_ctx* pCtx, s_quick_anyValue anyValue);
 
 void* quickjs_copyBuffer(void* buffer, int size);
-
-void* quickjs_convertPointer(void* ptr);
 
 #endif // QUICKJS_ENGINE_CPP

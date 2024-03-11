@@ -593,6 +593,8 @@ func goValueToCAnyValue(goVal any, cAnyVal *C.s_quick_anyValue) {
 		// Must copy the buffer here in order to avoid using the Go one.
 		cAnyVal.voidPtr = C.quickjs_copyBuffer(unsafe.Pointer(&asBuffer[0]), C.int(len(asBuffer)))
 		cAnyVal.size = C.int(len(asBuffer))
+		cAnyVal.mustFree = cInt1
+
 		return
 	}
 
