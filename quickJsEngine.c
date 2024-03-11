@@ -235,7 +235,7 @@ typedef struct s_quickJs_string {
 } s_quickJs_string;
 
 static void freeArrayBuffer(JSRuntime *rt, void *opaque, void *ptr) {
-    //DEBUG_PRINT("freeArrayBuffer / free buffer");
+    DEBUG_PRINT("freeArrayBuffer / free buffer");
     free(ptr);
 }
 
