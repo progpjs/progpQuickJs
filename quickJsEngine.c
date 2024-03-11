@@ -13,8 +13,9 @@ typedef struct s_quickJs_gcItem {
     s_quickJs_withHeader header;
 } s_quickJs_gcItem;
 
-static void releaseAnyValue(JSContext* ctx, const s_quick_anyValue anyValue);
-void freeAnyValueList(JSContext *ctx, s_quick_anyValue* values, int maxCount);
+static void releaseAnyValue_fromGo(JSContext* ctx, s_quick_anyValue* anyValue);
+void freeAnyValueList_JsToGo(JSContext *ctx, s_quick_anyValue* values, int maxCount);
+void freeAnyValueList_GoToJs(JSContext *ctx, s_quick_anyValue* values, int maxCount);
 
 //region Config
 
@@ -89,11 +90,11 @@ void disposeContext(s_quick_ctx* pCtx) {
     }
 
     if (pCtx->jsToGoValuesCount!=0) {
-        freeAnyValueList(pCtx->ctx, pCtx->jsToGoValues, pCtx->jsToGoValuesCount);
+        freeAnyValueList_JsToGo(pCtx->ctx, pCtx->jsToGoValues, pCtx->jsToGoValuesCount);
     }
 
     if (pCtx->goToJsValuesCount!=0) {
-        freeAnyValueList(pCtx->ctx, pCtx->goToJsValues, pCtx->goToJsValuesCount);
+        freeAnyValueList_GoToJs(pCtx->ctx, pCtx->goToJsValues, pCtx->goToJsValuesCount);
     }
 }
 
@@ -180,11 +181,11 @@ void quickjs_decrContext(s_quick_ctx* pCtx) {
     }
 
     if (pCtx->jsToGoValuesCount!=0) {
-        freeAnyValueList(pCtx->ctx, pCtx->jsToGoValues, pCtx->jsToGoValuesCount);
+        freeAnyValueList_JsToGo(pCtx->ctx, pCtx->jsToGoValues, pCtx->jsToGoValuesCount);
     }
 
     if (pCtx->goToJsValuesCount!=0) {
-        freeAnyValueList(pCtx->ctx, pCtx->goToJsValues, pCtx->goToJsValuesCount);
+        freeAnyValueList_JsToGo(pCtx->ctx, pCtx->goToJsValues, pCtx->goToJsValuesCount);
     }
 
     //s_quickJs_gcItem* gcItem = pCtx->ctx;
@@ -237,20 +238,42 @@ static void freeArrayBuffer(JSRuntime *rt, void *opaque, void *ptr) {
     free(ptr);
 }
 
-static void releaseAnyValue(JSContext* ctx, const s_quick_anyValue anyValue) {
-    if (anyValue.valueType == JS_TAG_STRING) {
-        JS_FreeCString(ctx, anyValue.voidPtr);
-    }
+static void releaseAnyValue_fromGo(JSContext* ctx, s_quick_anyValue* anyValue) {
+    anyValue->mustFree = false;
+    if (anyValue->valueType == AnyValueTypeString) free(anyValue->voidPtr);
 }
 
-void freeAnyValueList(JSContext *ctx, s_quick_anyValue* values, int maxCount) {
+void freeAnyValueList_JsToGo(JSContext *ctx, s_quick_anyValue* values, int maxCount) {
     for (int i=0;i<maxCount;i++) {
         s_quick_anyValue* anyValue = &values[i];
 
         if (anyValue->mustFree) {
-            if (anyValue->valueType == JS_TAG_STRING) {
+            anyValue->mustFree = false;
+
+            if (anyValue->valueType == AnyValueTypeString) {
+                // Warning: here it's string allocated by QuickJS.
                 JS_FreeCString(ctx, anyValue->voidPtr);
             }
+        }
+    }
+}
+
+void freeAnyValueList_GoToJs(JSContext *ctx, s_quick_anyValue* values, int maxCount) {
+    // Warning: here string value aren't allocated the same way since they are allocated by Go and not QuickJS.
+    // It's why they aren't free the same way.
+
+    for (int i=0;i<maxCount;i++) {
+        s_quick_anyValue* anyValue = &values[i];
+
+        if (anyValue->mustFree) {
+            anyValue->mustFree = false;
+
+            if (anyValue->valueType == AnyValueTypeString) {
+                // Warning: here it's string allocated by GO.
+                free(anyValue->voidPtr);
+            }
+
+            releaseAnyValue_fromGo(ctx, anyValue);
         }
     }
 }
@@ -450,7 +473,7 @@ s_quick_ctx* quickjs_callParamsToAnyValue(JSContext *ctx, int argc, JSValueConst
     s_quick_anyValue* values = pCtx->jsToGoValues;
 
     if (pCtx->jsToGoValuesCount!=0) {
-        freeAnyValueList(ctx, pCtx->jsToGoValues, pCtx->jsToGoValuesCount);
+        freeAnyValueList_JsToGo(ctx, pCtx->jsToGoValues, pCtx->jsToGoValuesCount);
     }
     //
     pCtx->jsToGoValuesCount = argc;
@@ -477,10 +500,12 @@ JSValue quickjs_newAutoReleaseResource(s_quick_ctx* pCtx, void* value) {
     return JS_NewArrayBuffer(pCtx->ctx, NULL, 0, onGcAutoReleaseResource, value, false);
 }
 
-JSValue quickjs_processExternalFunctionCallResult(s_quick_ctx* pCtx, s_quick_anyValue anyValue) {
+JSValue quickjs_processExternalFunctionCallResult(s_quick_ctx* pCtx, s_quick_anyValue anyValueFromGo) {
+    DEBUG_PRINT("quickjs_processExternalFunctionCallResult / d1");
     bool error = false;
-    JSValue jsv = quickjs_anyValueToJsValue(pCtx, anyValue, &error);
-    if (anyValue.mustFree) releaseAnyValue(pCtx->ctx, anyValue);
+    JSValue jsv = quickjs_anyValueToJsValue(pCtx, anyValueFromGo, &error);
+    if (anyValueFromGo.mustFree) releaseAnyValue_fromGo(pCtx->ctx, &anyValueFromGo);
     if (error) return JS_Throw(pCtx->ctx, jsv);
+    DEBUG_PRINT("quickjs_processExternalFunctionCallResult / d2");
     return jsv;
 }
