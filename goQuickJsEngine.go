@@ -677,6 +677,10 @@ func (m *JsToGoCall) AssertArgCount(count int) bool {
 }
 
 func (m *JsToGoCall) SetReturnValue(value any) {
+	if av, ok := value.(AnyValue); ok {
+		value = av.Value
+	}
+
 	m.returnValue = value
 }
 
@@ -724,7 +728,6 @@ func cgoCallDynamicFunction(functionId C.int, pCtx *C.s_quick_ctx, argc C.int) C
 	jsf.goFunction(&call)
 
 	var cResult C.s_quick_anyValue
-
 	goValueToCAnyValue(call.returnValue, &cResult)
 	return cResult
 }
