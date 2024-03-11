@@ -1,11 +1,6 @@
-let cb = function() {
-    console.log("Inside callback");
-
-    for (let arg of arguments) {
-        console.log(arg);
-    }
-
-    return 111;
+try { js_test(); }
+catch (e) {
+    console.log("error ", e)
 }
 
-js_test(cb, 1234);
+console.log("suite")

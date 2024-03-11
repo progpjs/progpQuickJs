@@ -653,23 +653,31 @@ func (m AnyValue) AsBuffer() []byte {
 	return m.Value.([]byte)
 }
 
+func (m AnyValue) AsAny() any {
+	return m.Value
+}
+
 //endregion
 
 //region JsToGoCall
 
 type JsToGoCall struct {
-	Params []AnyValue
-	ctx    *Context
-	error  string
+	Params      []AnyValue
+	ctx         *Context
+	returnValue any
 }
 
 func (m *JsToGoCall) AssertArgCount(count int) bool {
 	if len(m.Params) < count {
-		m.error = fmt.Sprintf("call param error: %d argument expected", count)
+		m.returnValue = errors.New(fmt.Sprintf("call param error: %d argument expected", count))
 		return false
 	}
 
 	return true
+}
+
+func (m *JsToGoCall) SetReturnValue(value any) {
+	m.returnValue = value
 }
 
 //endregion
@@ -717,12 +725,7 @@ func cgoCallDynamicFunction(functionId C.int, pCtx *C.s_quick_ctx, argc C.int) C
 
 	var cResult C.s_quick_anyValue
 
-	if call.error != "" {
-		goValueToCAnyValue(errors.New(call.error), &cResult)
-	} else {
-		cResult.valueType = cAnyValueTypeUndefined
-	}
-
+	goValueToCAnyValue(call.returnValue, &cResult)
 	return cResult
 }
 

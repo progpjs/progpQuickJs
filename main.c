@@ -55,22 +55,17 @@ static JSValue js_receiveFunction(JSContext *ctx, JSValueConst this_val, int arg
 }
 
 static JSValue js_test(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv) {
-    JSValue fct = argv[0];
+    const char * str = strdup("mon errreur");
 
-    argv[0] = JS_UNDEFINED;
     s_quick_ctx* pCtx = quickjs_callParamsToAnyValue(ctx, argc, argv);
-    argv[0] = fct;
 
-    pCtx->jsToGoValuesCount = 0;
-    pCtx->goToJsValuesCount = argc;
+    s_quick_anyValue err;
+    err.valueType = AnyValueTypeError;
+    err.voidPtr = str;
+    err.size = strlen(str);
+    err.mustFree = true;
 
-    for (int i=0;i<argc;i++) {
-        pCtx->goToJsValues[i] = pCtx->jsToGoValues[i];
-    }
-
-    quickjs_callFunctionWithAnyValues(pCtx, &fct, 1);
-
-    return JS_UNDEFINED;
+    return quickjs_processExternalFunctionCallResult(pCtx, err);
 }
 
 //endregion

@@ -4,25 +4,6 @@
 
 #include "quickjs-libc.h"
 
-typedef struct s_quickJs_string {
-    JSRefCountHeader header; /* must come first, 32-bit */
-    uint32_t len : 31;
-    uint8_t is_wide_char : 1; /* 0 = 8 bits, 1 = 16 bits characters */
-    /* for JS_ATOM_TYPE_SYMBOL: hash = 0, atom_type = 3,
-       for JS_ATOM_TYPE_PRIVATE: hash = 1, atom_type = 3
-       XXX: could change encoding to have one more bit in hash */
-    uint32_t hash : 30;
-    uint8_t atom_type : 2; /* != 0 if atom, JS_ATOM_TYPE_x */
-    uint32_t hash_next; /* atom_index for JS_ATOM_TYPE_SYMBOL */
-#ifdef DUMP_LEAKS
-    struct list_head link; /* string list */
-#endif
-    union {
-        uint8_t str8[0]; /* 8 bit strings will get an extra null terminator */
-        uint16_t str16[0];
-    } u;
-} s_quickJs_string;
-
 // Allows to check the ref count of an object when debugging.
 typedef struct s_quickJs_withHeader {
     int ref_count;
@@ -32,7 +13,8 @@ typedef struct s_quickJs_gcItem {
     s_quickJs_withHeader header;
 } s_quickJs_gcItem;
 
-//endregion
+static void releaseAnyValue(JSContext* ctx, const s_quick_anyValue anyValue);
+void freeAnyValueList(JSContext *ctx, s_quick_anyValue* values, int maxCount);
 
 //region Config
 
@@ -99,18 +81,6 @@ void quickjs_releaseError(s_quick_error* error) {
 //endregion
 
 //region Context
-
-void freeAnyValueList(JSContext *ctx, s_quick_anyValue* values, int maxCount) {
-    for (int i=0;i<maxCount;i++) {
-        s_quick_anyValue* anyValue = &values[i];
-
-        if (anyValue->mustFree) {
-            if (anyValue->valueType == JS_TAG_STRING) {
-                JS_FreeCString(ctx, anyValue->voidPtr);
-            }
-        }
-    }
-}
 
 void disposeContext(s_quick_ctx* pCtx) {
     if (pCtx->hasException) {
@@ -244,8 +214,45 @@ s_quick_error* quickjs_executeScript(s_quick_ctx* pCtx, const char* script, cons
 
 //region Any Values
 
+typedef struct s_quickJs_string {
+    JSRefCountHeader header; /* must come first, 32-bit */
+    uint32_t len : 31;
+    uint8_t is_wide_char : 1; /* 0 = 8 bits, 1 = 16 bits characters */
+    /* for JS_ATOM_TYPE_SYMBOL: hash = 0, atom_type = 3,
+       for JS_ATOM_TYPE_PRIVATE: hash = 1, atom_type = 3
+       XXX: could change encoding to have one more bit in hash */
+    uint32_t hash : 30;
+    uint8_t atom_type : 2; /* != 0 if atom, JS_ATOM_TYPE_x */
+    uint32_t hash_next; /* atom_index for JS_ATOM_TYPE_SYMBOL */
+#ifdef DUMP_LEAKS
+    struct list_head link; /* string list */
+#endif
+    union {
+        uint8_t str8[0]; /* 8 bit strings will get an extra null terminator */
+        uint16_t str16[0];
+    } u;
+} s_quickJs_string;
+
 static void freeArrayBuffer(JSRuntime *rt, void *opaque, void *ptr) {
     free(ptr);
+}
+
+static void releaseAnyValue(JSContext* ctx, const s_quick_anyValue anyValue) {
+    if (anyValue.valueType == JS_TAG_STRING) {
+        JS_FreeCString(ctx, anyValue.voidPtr);
+    }
+}
+
+void freeAnyValueList(JSContext *ctx, s_quick_anyValue* values, int maxCount) {
+    for (int i=0;i<maxCount;i++) {
+        s_quick_anyValue* anyValue = &values[i];
+
+        if (anyValue->mustFree) {
+            if (anyValue->valueType == JS_TAG_STRING) {
+                JS_FreeCString(ctx, anyValue->voidPtr);
+            }
+        }
+    }
 }
 
 static inline void jsStringToCString(JSContext *ctx, const JSValueConst jsValue, s_quick_anyValue* anyValue) {
@@ -359,10 +366,8 @@ JSValue quickjs_anyValueToJsValue(s_quick_ctx *pCtx, const s_quick_anyValue anyV
         }
 
         case AnyValueTypeError: {
-            JSValue jsv = JS_NewStringLen(pCtx->ctx, (const char *) anyValue.voidPtr, anyValue.size);
-            JS_Throw(pCtx->ctx, jsv);
-            JS_FreeValue(pCtx->ctx, jsv);
-            return jsv;
+            *error = true;
+            return JS_NewStringLen(pCtx->ctx, (const char *) anyValue.voidPtr, anyValue.size);
         }
 
         default: return JS_UNDEFINED;
@@ -470,4 +475,12 @@ static void onGcAutoReleaseResource(JSRuntime *rt, void *opaque, void *buffer) {
 
 JSValue quickjs_newAutoReleaseResource(s_quick_ctx* pCtx, void* value) {
     return JS_NewArrayBuffer(pCtx->ctx, NULL, 0, onGcAutoReleaseResource, value, false);
+}
+
+JSValue quickjs_processExternalFunctionCallResult(s_quick_ctx* pCtx, s_quick_anyValue anyValue) {
+    bool error = false;
+    JSValue jsv = quickjs_anyValueToJsValue(pCtx, anyValue, &error);
+    if (anyValue.mustFree) releaseAnyValue(pCtx->ctx, anyValue);
+    if (error) return JS_Throw(pCtx->ctx, jsv);
+    return jsv;
 }

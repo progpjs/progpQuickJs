@@ -115,4 +115,6 @@ s_quick_ctx* quickjs_callParamsToAnyValue(JSContext *ctx, int argc, JSValueConst
 
 JSValue quickjs_newAutoReleaseResource(s_quick_ctx* pCtx, void* value);
 
+JSValue quickjs_processExternalFunctionCallResult(s_quick_ctx* pCtx, s_quick_anyValue anyValue);
+
 #endif // QUICKJS_ENGINE_CPP
